@@ -1,0 +1,84 @@
+# Application Configuration
+
+app:
+  name: "Govtech Chat Assistant"
+  version: "1.0.0"
+  debug: false
+
+# LLM Configuration - Model agnostic setup
+llm:
+  # Available providers: openai, anthropic, google
+  providers:
+    openai:
+      models:
+        - gpt-4-turbo-preview
+        - gpt-4
+        - gpt-3.5-turbo
+      default_model: gpt-4-turbo-preview
+      temperature: 0.7
+      max_tokens: 4096
+
+    anthropic:
+      models:
+        - claude-3-opus-20240229
+        - claude-3-sonnet-20240229
+        - claude-3-haiku-20240307
+      default_model: claude-3-sonnet-20240229
+      temperature: 0.7
+      max_tokens: 4096
+
+    google:
+      models:
+        - gemini-pro
+        - gemini-pro-vision
+      default_model: gemini-pro
+      temperature: 0.7
+      max_tokens: 4096
+
+# Embedding Configuration
+embeddings:
+  providers:
+    openai:
+      models:
+        - text-embedding-3-small
+        - text-embedding-3-large
+        - text-embedding-ada-002
+      default_model: text-embedding-3-small
+      dimensions: 1536
+
+    google:
+      models:
+        - models/embedding-001
+      default_model: models/embedding-001
+      dimensions: 768
+
+# Vector Store Configuration
+vector_store:
+  type: pgvector  # Options: chroma, faiss, pgvector
+  persist_directory: "./data/vector_store"
+  collection_name: "govtech_data"
+
+# Database Configuration
+database:
+  pool_size: 5
+  max_overflow: 10
+  echo: false
+
+# RAG Configuration
+rag:
+  embedding_batch_size: 100
+  vector_search_top_k: 20
+  fulltext_search_top_k: 20
+  hybrid_top_k: 10
+  rrf_k: 60
+  similarity_threshold: 0.8
+
+# Data Configuration
+data:
+  datasets_path: "../dataset"
+  api_specs_path: "../api_spec"
+
+# LangGraph Configuration
+langgraph:
+  max_iterations: 10
+  recursion_limit: 25

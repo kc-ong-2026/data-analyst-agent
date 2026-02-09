@@ -1,0 +1,609 @@
+year,sex,occupation,employed
+1991,male,managers & administrators (including working proprietors),102500
+1991,male,managers & administrators,51000
+1991,male,working proprietors,51500
+1991,male,professionals,47500
+1991,male,associate professionals & technicians,96700
+1991,male,clerical support workers,52400
+1991,male,service & sales workers,122500
+1991,male,craftsmen & related trades workers,160100
+1991,male,plant & machine operators & assemblers,136300
+1991,male,"cleaners, labourers & related workers",58600
+1991,male,others,62300
+1991,female,managers & administrators (including working proprietors),20300
+1991,female,managers & administrators,13200
+1991,female,working proprietors,7100
+1991,female,professionals,33600
+1991,female,associate professionals & technicians,65200
+1991,female,clerical support workers,157800
+1991,female,service & sales workers,82700
+1991,female,craftsmen & related trades workers,16000
+1991,female,plant & machine operators & assemblers,92700
+1991,female,"cleaners, labourers & related workers",36800
+1991,female,others,900
+1992,male,managers & administrators (including working proprietors),116400
+1992,male,managers & administrators,56200
+1992,male,working proprietors,60200
+1992,male,professionals,56100
+1992,male,associate professionals & technicians,113900
+1992,male,clerical support workers,49500
+1992,male,service & sales workers,120500
+1992,male,craftsmen & related trades workers,140500
+1992,male,plant & machine operators & assemblers,133200
+1992,male,"cleaners, labourers & related workers",54600
+1992,male,others,62800
+1992,female,managers & administrators (including working proprietors),23600
+1992,female,managers & administrators,16000
+1992,female,working proprietors,7600
+1992,female,professionals,37900
+1992,female,associate professionals & technicians,75100
+1992,female,clerical support workers,160500
+1992,female,service & sales workers,83100
+1992,female,craftsmen & related trades workers,13800
+1992,female,plant & machine operators & assemblers,89900
+1992,female,"cleaners, labourers & related workers",36700
+1992,female,others,1600
+1993,male,managers & administrators (including working proprietors),122500
+1993,male,managers & administrators,63900
+1993,male,working proprietors,58700
+1993,male,professionals,59100
+1993,male,associate professionals & technicians,119200
+1993,male,clerical support workers,54400
+1993,male,service & sales workers,119400
+1993,male,craftsmen & related trades workers,137100
+1993,male,plant & machine operators & assemblers,135500
+1993,male,"cleaners, labourers & related workers",54000
+1993,male,others,58900
+1993,female,managers & administrators (including working proprietors),25900
+1993,female,managers & administrators,18300
+1993,female,working proprietors,7600
+1993,female,professionals,40800
+1993,female,associate professionals & technicians,76100
+1993,female,clerical support workers,161200
+1993,female,service & sales workers,82900
+1993,female,craftsmen & related trades workers,11500
+1993,female,plant & machine operators & assemblers,87500
+1993,female,"cleaners, labourers & related workers",34300
+1993,female,others,1300
+1994,male,managers & administrators (including working proprietors),126900
+1994,male,managers & administrators,68200
+1994,male,working proprietors,58600
+1994,male,professionals,63000
+1994,male,associate professionals & technicians,131800
+1994,male,clerical support workers,53900
+1994,male,service & sales workers,118900
+1994,male,craftsmen & related trades workers,136100
+1994,male,plant & machine operators & assemblers,135400
+1994,male,"cleaners, labourers & related workers",50000
+1994,male,others,59700
+1994,female,managers & administrators (including working proprietors),28700
+1994,female,managers & administrators,20600
+1994,female,working proprietors,8100
+1994,female,professionals,44000
+1994,female,associate professionals & technicians,85500
+1994,female,clerical support workers,166500
+1994,female,service & sales workers,87700
+1994,female,craftsmen & related trades workers,12000
+1994,female,plant & machine operators & assemblers,79300
+1994,female,"cleaners, labourers & related workers",35300
+1994,female,others,1400
+1996,male,managers & administrators (including working proprietors),146400
+1996,male,managers & administrators,84800
+1996,male,working proprietors,61600
+1996,male,professionals,71200
+1996,male,associate professionals & technicians,151500
+1996,male,clerical support workers,52800
+1996,male,service & sales workers,115900
+1996,male,craftsmen & related trades workers,116300
+1996,male,plant & machine operators & assemblers,133000
+1996,male,"cleaners, labourers & related workers",49800
+1996,male,others,52700
+1996,female,managers & administrators (including working proprietors),37600
+1996,female,managers & administrators,28500
+1996,female,working proprietors,9200
+1996,female,professionals,51300
+1996,female,associate professionals & technicians,105800
+1996,female,clerical support workers,174900
+1996,female,service & sales workers,86600
+1996,female,craftsmen & related trades workers,9200
+1996,female,plant & machine operators & assemblers,71500
+1996,female,"cleaners, labourers & related workers",36800
+1996,female,others,1400
+1997,male,managers & administrators (including working proprietors),148400
+1997,male,managers & administrators,88300
+1997,male,working proprietors,60100
+1997,male,professionals,92800
+1997,male,associate professionals & technicians,157800
+1997,male,clerical support workers,50600
+1997,male,service & sales workers,114600
+1997,male,craftsmen & related trades workers,101900
+1997,male,plant & machine operators & assemblers,137000
+1997,male,"cleaners, labourers & related workers",57300
+1997,male,others,52400
+1997,female,managers & administrators (including working proprietors),43400
+1997,female,managers & administrators,32400
+1997,female,working proprietors,11000
+1997,female,professionals,59500
+1997,female,associate professionals & technicians,101400
+1997,female,clerical support workers,183000
+1997,female,service & sales workers,85800
+1997,female,craftsmen & related trades workers,10800
+1997,female,plant & machine operators & assemblers,65800
+1997,female,"cleaners, labourers & related workers",36000
+1997,female,others,1400
+1998,male,managers & administrators (including working proprietors),153500
+1998,male,managers & administrators,91000
+1998,male,working proprietors,62500
+1998,male,professionals,93200
+1998,male,associate professionals & technicians,149300
+1998,male,clerical support workers,50500
+1998,male,service & sales workers,114800
+1998,male,craftsmen & related trades workers,108900
+1998,male,plant & machine operators & assemblers,127000
+1998,male,"cleaners, labourers & related workers",52000
+1998,male,others,52400
+1998,female,managers & administrators (including working proprietors),40500
+1998,female,managers & administrators,31300
+1998,female,working proprietors,9200
+1998,female,professionals,64900
+1998,female,associate professionals & technicians,114400
+1998,female,clerical support workers,182100
+1998,female,service & sales workers,87200
+1998,female,craftsmen & related trades workers,10700
+1998,female,plant & machine operators & assemblers,55200
+1998,female,"cleaners, labourers & related workers",35800
+1998,female,others,1300
+1999,male,managers & administrators (including working proprietors),149600
+1999,male,managers & administrators,84500
+1999,male,working proprietors,65100
+1999,male,professionals,103400
+1999,male,associate professionals & technicians,155700
+1999,male,clerical support workers,46600
+1999,male,service & sales workers,120000
+1999,male,craftsmen & related trades workers,105500
+1999,male,plant & machine operators & assemblers,127800
+1999,male,"cleaners, labourers & related workers",49000
+1999,male,others,54400
+1999,female,managers & administrators (including working proprietors),41700
+1999,female,managers & administrators,31200
+1999,female,working proprietors,10500
+1999,female,professionals,66600
+1999,female,associate professionals & technicians,120600
+1999,female,clerical support workers,176600
+1999,female,service & sales workers,93300
+1999,female,craftsmen & related trades workers,10500
+1999,female,plant & machine operators & assemblers,57300
+1999,female,"cleaners, labourers & related workers",38000
+1999,female,others,1600
+2001,male,managers & administrators (including working proprietors),174600
+2001,male,professionals,131400
+2001,male,associate professionals & technicians,132600
+2001,male,clerical support workers,50900
+2001,male,service & sales workers,103500
+2001,male,craftsmen & related trades workers,94400
+2001,male,plant & machine operators & assemblers,129300
+2001,male,"cleaners, labourers & related workers",58600
+2001,male,others,63200
+2001,female,managers & administrators (including working proprietors),58700
+2001,female,professionals,101600
+2001,female,associate professionals & technicians,105600
+2001,female,clerical support workers,171000
+2001,female,service & sales workers,97200
+2001,female,craftsmen & related trades workers,8100
+2001,female,plant & machine operators & assemblers,44300
+2001,female,"cleaners, labourers & related workers",55900
+2001,female,others,1700
+2002,male,managers & administrators (including working proprietors),172400
+2002,male,professionals,134300
+2002,male,associate professionals & technicians,129700
+2002,male,clerical support workers,49800
+2002,male,service & sales workers,107300
+2002,male,craftsmen & related trades workers,96200
+2002,male,plant & machine operators & assemblers,127000
+2002,male,"cleaners, labourers & related workers",60100
+2002,male,others,60900
+2002,female,managers & administrators (including working proprietors),60900
+2002,female,professionals,102000
+2002,female,associate professionals & technicians,104700
+2002,female,clerical support workers,168100
+2002,female,service & sales workers,91500
+2002,female,craftsmen & related trades workers,8900
+2002,female,plant & machine operators & assemblers,44200
+2002,female,"cleaners, labourers & related workers",54700
+2002,female,others,1100
+2003,male,managers & administrators (including working proprietors),179900
+2003,male,professionals,137700
+2003,male,associate professionals & technicians,130300
+2003,male,clerical support workers,50900
+2003,male,service & sales workers,104100
+2003,male,craftsmen & related trades workers,89700
+2003,male,plant & machine operators & assemblers,122400
+2003,male,"cleaners, labourers & related workers",65600
+2003,male,others,68200
+2003,female,managers & administrators (including working proprietors),63300
+2003,female,professionals,109400
+2003,female,associate professionals & technicians,110500
+2003,female,clerical support workers,168200
+2003,female,service & sales workers,92700
+2003,female,craftsmen & related trades workers,8300
+2003,female,plant & machine operators & assemblers,44300
+2003,female,"cleaners, labourers & related workers",58300
+2003,female,others,1600
+2004,male,managers & administrators (including working proprietors),174900
+2004,male,professionals,144300
+2004,male,associate professionals & technicians,143300
+2004,male,clerical support workers,48800
+2004,male,service & sales workers,103300
+2004,male,craftsmen & related trades workers,89300
+2004,male,plant & machine operators & assemblers,122600
+2004,male,"cleaners, labourers & related workers",65100
+2004,male,others,69300
+2004,female,managers & administrators (including working proprietors),67100
+2004,female,professionals,105600
+2004,female,associate professionals & technicians,116500
+2004,female,clerical support workers,171600
+2004,female,service & sales workers,100200
+2004,female,craftsmen & related trades workers,7900
+2004,female,plant & machine operators & assemblers,41600
+2004,female,"cleaners, labourers & related workers",58800
+2004,female,others,1900
+2007,male,managers & administrators (including working proprietors),201100
+2007,male,professionals,178600
+2007,male,associate professionals & technicians,154900
+2007,male,clerical support workers,55500
+2007,male,service & sales workers,116300
+2007,male,craftsmen & related trades workers,87500
+2007,male,plant & machine operators & assemblers,132100
+2007,male,"cleaners, labourers & related workers",71400
+2007,male,others,62200
+2007,female,managers & administrators (including working proprietors),87400
+2007,female,professionals,141500
+2007,female,associate professionals & technicians,141100
+2007,female,clerical support workers,179800
+2007,female,service & sales workers,112900
+2007,female,craftsmen & related trades workers,9900
+2007,female,plant & machine operators & assemblers,34300
+2007,female,"cleaners, labourers & related workers",74200
+2007,female,others,1500
+2007a,male,managers & administrators (including working proprietors),195900
+2007a,male,professionals,172300
+2007a,male,associate professionals & technicians,151800
+2007a,male,clerical support workers,54800
+2007a,male,service & sales workers,114900
+2007a,male,craftsmen & related trades workers,85900
+2007a,male,plant & machine operators & assemblers,130700
+2007a,male,"cleaners, labourers & related workers",70600
+2007a,male,others,61600
+2007a,female,managers & administrators (including working proprietors),85400
+2007a,female,professionals,137400
+2007a,female,associate professionals & technicians,137700
+2007a,female,clerical support workers,176400
+2007a,female,service & sales workers,110600
+2007a,female,craftsmen & related trades workers,9700
+2007a,female,plant & machine operators & assemblers,33300
+2007a,female,"cleaners, labourers & related workers",73000
+2007a,female,others,1500
+2008,male,managers & administrators (including working proprietors),208200
+2008,male,professionals,187600
+2008,male,associate professionals & technicians,161500
+2008,male,clerical support workers,57700
+2008,male,service & sales workers,105100
+2008,male,craftsmen & related trades workers,81300
+2008,male,plant & machine operators & assemblers,126400
+2008,male,"cleaners, labourers & related workers",63700
+2008,male,others,62200
+2008,female,managers & administrators (including working proprietors),95100
+2008,female,professionals,146900
+2008,female,associate professionals & technicians,146300
+2008,female,clerical support workers,179300
+2008,female,service & sales workers,114200
+2008,female,craftsmen & related trades workers,9500
+2008,female,plant & machine operators & assemblers,31000
+2008,female,"cleaners, labourers & related workers",74900
+2008,female,others,1200
+2009,male,managers & administrators (including working proprietors),214100
+2009,male,professionals,192000
+2009,male,associate professionals & technicians,158300
+2009,male,clerical support workers,56500
+2009,male,service & sales workers,107900
+2009,male,craftsmen & related trades workers,79400
+2009,male,plant & machine operators & assemblers,130400
+2009,male,"cleaners, labourers & related workers",64900
+2009,male,others,62600
+2009,female,managers & administrators (including working proprietors),96700
+2009,female,professionals,149800
+2009,female,associate professionals & technicians,152300
+2009,female,clerical support workers,178300
+2009,female,service & sales workers,111800
+2009,female,craftsmen & related trades workers,9300
+2009,female,plant & machine operators & assemblers,28000
+2009,female,"cleaners, labourers & related workers",76100
+2009,female,others,900
+2010,male,managers & administrators (including working proprietors),232700
+2010,male,professionals,207400
+2010,male,associate professionals & technicians,167100
+2010,male,clerical support workers,52900
+2010,male,service & sales workers,108900
+2010,male,craftsmen & related trades workers,78000
+2010,male,plant & machine operators & assemblers,126300
+2010,male,"cleaners, labourers & related workers",66600
+2010,male,others,66700
+2010,female,managers & administrators (including working proprietors),119700
+2010,female,professionals,168300
+2010,female,associate professionals & technicians,136300
+2010,female,clerical support workers,190700
+2010,female,service & sales workers,125600
+2010,female,craftsmen & related trades workers,8500
+2010,female,plant & machine operators & assemblers,26300
+2010,female,"cleaners, labourers & related workers",78900
+2010,female,others,2000
+2011,male,managers & administrators (including working proprietors),243500
+2011,male,professionals,183200
+2011,male,associate professionals & technicians,182600
+2011,male,clerical support workers,57200
+2011,male,service & sales workers,107400
+2011,male,craftsmen & related trades workers,82100
+2011,male,plant & machine operators & assemblers,131700
+2011,male,"cleaners, labourers & related workers",62900
+2011,male,others,68200
+2011,female,managers & administrators (including working proprietors),123500
+2011,female,professionals,165200
+2011,female,associate professionals & technicians,154500
+2011,female,clerical support workers,192100
+2011,female,service & sales workers,127400
+2011,female,craftsmen & related trades workers,7400
+2011,female,plant & machine operators & assemblers,25900
+2011,female,"cleaners, labourers & related workers",82800
+2011,female,others,1400
+2012,male,managers & administrators (including working proprietors),238800
+2012,male,professionals,198900
+2012,male,associate professionals & technicians,184600
+2012,male,clerical support workers,61400
+2012,male,service & sales workers,115700
+2012,male,craftsmen & related trades workers,81700
+2012,male,plant & machine operators & assemblers,124800
+2012,male,"cleaners, labourers & related workers",64700
+2012,male,others,67700
+2012,female,managers & administrators (including working proprietors),120200
+2012,female,professionals,171100
+2012,female,associate professionals & technicians,155800
+2012,female,clerical support workers,204300
+2012,female,service & sales workers,136800
+2012,female,craftsmen & related trades workers,8800
+2012,female,plant & machine operators & assemblers,23900
+2012,female,"cleaners, labourers & related workers",80600
+2012,female,others,900
+2013,male,managers & administrators (including working proprietors),239800
+2013,male,professionals,195500
+2013,male,associate professionals & technicians,195100
+2013,male,clerical support workers,65100
+2013,male,service & sales workers,112100
+2013,male,craftsmen & related trades workers,74900
+2013,male,plant & machine operators & assemblers,125000
+2013,male,"cleaners, labourers & related workers",67300
+2013,male,others,67600
+2013,female,managers & administrators (including working proprietors),120700
+2013,female,professionals,176400
+2013,female,associate professionals & technicians,164300
+2013,female,clerical support workers,206600
+2013,female,service & sales workers,132600
+2013,female,craftsmen & related trades workers,7300
+2013,female,plant & machine operators & assemblers,21900
+2013,female,"cleaners, labourers & related workers",82900
+2013,female,others,1100
+2014,male,managers & administrators (including working proprietors),233300
+2014,male,professionals,205300
+2014,male,associate professionals & technicians,202700
+2014,male,clerical support workers,66400
+2014,male,service & sales workers,110700
+2014,male,craftsmen & related trades workers,75200
+2014,male,plant & machine operators & assemblers,126400
+2014,male,"cleaners, labourers & related workers",72100
+2014,male,others,68900
+2014,female,managers & administrators (including working proprietors),118000
+2014,female,professionals,178000
+2014,female,associate professionals & technicians,188900
+2014,female,clerical support workers,202000
+2014,female,service & sales workers,133600
+2014,female,craftsmen & related trades workers,6900
+2014,female,plant & machine operators & assemblers,19500
+2014,female,"cleaners, labourers & related workers",93800
+2014,female,others,1900
+2015,male,managers & administrators (including working proprietors),235200
+2015,male,professionals,209300
+2015,male,associate professionals & technicians,214600
+2015,male,clerical support workers,63300
+2015,male,service & sales workers,113000
+2015,male,craftsmen & related trades workers,74200
+2015,male,plant & machine operators & assemblers,128700
+2015,male,"cleaners, labourers & related workers",65600
+2015,male,others,67900
+2015,female,managers & administrators (including working proprietors),120600
+2015,female,professionals,194800
+2015,female,associate professionals & technicians,193700
+2015,female,clerical support workers,204400
+2015,female,service & sales workers,138500
+2015,female,craftsmen & related trades workers,9700
+2015,female,plant & machine operators & assemblers,17400
+2015,female,"cleaners, labourers & related workers",94700
+2015,female,others,2100
+2016,male,managers & administrators (including working proprietors),220200
+2016,male,professionals,215100
+2016,male,associate professionals & technicians,229900
+2016,male,clerical support workers,60000
+2016,male,service & sales workers,115600
+2016,male,craftsmen & related trades workers,69800
+2016,male,plant & machine operators & assemblers,132600
+2016,male,"cleaners, labourers & related workers",65600
+2016,male,others,69700
+2016,female,managers & administrators (including working proprietors),117300
+2016,female,professionals,204700
+2016,female,associate professionals & technicians,208200
+2016,female,clerical support workers,184900
+2016,female,service & sales workers,146800
+2016,female,craftsmen & related trades workers,9400
+2016,female,plant & machine operators & assemblers,18600
+2016,female,"cleaners, labourers & related workers",95100
+2016,female,others,1900
+2017,male,managers & administrators (including working proprietors),230600
+2017,male,professionals,229000
+2017,male,associate professionals & technicians,224800
+2017,male,clerical support workers,58400
+2017,male,service & sales workers,108300
+2017,male,craftsmen & related trades workers,67100
+2017,male,plant & machine operators & assemblers,136000
+2017,male,"cleaners, labourers & related workers",68400
+2017,male,others,67000
+2017,female,managers & administrators (including working proprietors),118300
+2017,female,professionals,208600
+2017,female,associate professionals & technicians,211400
+2017,female,clerical support workers,189500
+2017,female,service & sales workers,139700
+2017,female,craftsmen & related trades workers,8900
+2017,female,plant & machine operators & assemblers,15500
+2017,female,"cleaners, labourers & related workers",92100
+2017,female,others,1900
+2018,male,managers & administrators (including working proprietors),219200
+2018,male,professionals,236000
+2018,male,associate professionals & technicians,242500
+2018,male,clerical support workers,59900
+2018,male,service & sales workers,115500
+2018,male,craftsmen & related trades workers,60900
+2018,male,plant & machine operators & assemblers,130400
+2018,male,"cleaners, labourers & related workers",66200
+2018,male,others,66600
+2018,female,managers & administrators (including working proprietors),122400
+2018,female,professionals,213300
+2018,female,associate professionals & technicians,222500
+2018,female,clerical support workers,181100
+2018,female,service & sales workers,147200
+2018,female,craftsmen & related trades workers,9100
+2018,female,plant & machine operators & assemblers,17500
+2018,female,"cleaners, labourers & related workers",90200
+2018,female,others,3200
+2019,male,managers & administrators (including working proprietors),231000
+2019,male,professionals,238000
+2019,male,associate professionals & technicians,243200
+2019,male,clerical support workers,56300
+2019,male,service & sales workers,111700
+2019,male,craftsmen & related trades workers,58800
+2019,male,plant & machine operators & assemblers,136800
+2019,male,"cleaners, labourers & related workers",64400
+2019,male,others,62400
+2019,female,managers & administrators (including working proprietors),133900
+2019,female,professionals,231400
+2019,female,associate professionals & technicians,224700
+2019,female,clerical support workers,180900
+2019,female,service & sales workers,146000
+2019,female,craftsmen & related trades workers,8900
+2019,female,plant & machine operators & assemblers,14600
+2019,female,"cleaners, labourers & related workers",85100
+2019,female,others,2400
+2020,male,managers & administrators (including working proprietors),231400
+2020,male,professionals,260500
+2020,male,associate professionals & technicians,231700
+2020,male,clerical support workers,51700
+2020,male,service & sales workers,107600
+2020,male,craftsmen & related trades workers,53700
+2020,male,plant & machine operators & assemblers,137200
+2020,male,"cleaners, labourers & related workers",65300
+2020,male,others,59000
+2020,female,managers & administrators (including working proprietors),136900
+2020,female,professionals,243700
+2020,female,associate professionals & technicians,228600
+2020,female,clerical support workers,163900
+2020,female,service & sales workers,142600
+2020,female,craftsmen & related trades workers,8700
+2020,female,plant & machine operators & assemblers,14500
+2020,female,"cleaners, labourers & related workers",84200
+2020,female,others,1400
+2021,male,managers & administrators (including working proprietors),233600
+2021,male,professionals,300500
+2021,male,associate professionals & technicians,235100
+2021,male,clerical support workers,52000
+2021,male,service & sales workers,106700
+2021,male,craftsmen & related trades workers,48100
+2021,male,plant & machine operators & assemblers,122500
+2021,male,"cleaners, labourers & related workers",67100
+2021,male,others,54700
+2021,female,managers & administrators (including working proprietors),144000
+2021,female,professionals,277000
+2021,female,associate professionals & technicians,232300
+2021,female,clerical support workers,171400
+2021,female,service & sales workers,130900
+2021,female,craftsmen & related trades workers,9800
+2021,female,plant & machine operators & assemblers,14500
+2021,female,"cleaners, labourers & related workers",84400
+2021,female,others,1800
+2022,male,managers & administrators (including working proprietors),243500
+2022,male,professionals,317300
+2022,male,associate professionals & technicians,244600
+2022,male,clerical support workers,49600
+2022,male,service & sales workers,107900
+2022,male,craftsmen & related trades workers,44300
+2022,male,plant & machine operators & assemblers,122400
+2022,male,"cleaners, labourers & related workers",73200
+2022,male,others,53500
+2022,female,managers & administrators (including working proprietors),164200
+2022,female,professionals,283600
+2022,female,associate professionals & technicians,242400
+2022,female,clerical support workers,162200
+2022,female,service & sales workers,132000
+2022,female,craftsmen & related trades workers,9000
+2022,female,plant & machine operators & assemblers,13300
+2022,female,"cleaners, labourers & related workers",85100
+2022,female,others,2300
+2023,male,managers & administrators (including working proprietors),223400
+2023,male,professionals,314700
+2023,male,associate professionals & technicians,246300
+2023,male,clerical support workers,49500
+2023,male,service & sales workers,112600
+2023,male,craftsmen & related trades workers,48000
+2023,male,plant & machine operators & assemblers,119700
+2023,male,"cleaners, labourers & related workers",72000
+2023,male,others,57900
+2023,female,managers & administrators (including working proprietors),146500
+2023,female,professionals,305900
+2023,female,associate professionals & technicians,237800
+2023,female,clerical support workers,158400
+2023,female,service & sales workers,143700
+2023,female,craftsmen & related trades workers,10700
+2023,female,plant & machine operators & assemblers,12300
+2023,female,"cleaners, labourers & related workers",90200
+2023,female,others,2800
+2024,male,managers & administrators (including working proprietors),242600
+2024,male,professionals,311500
+2024,male,associate professionals & technicians,241500
+2024,male,clerical support workers,48000
+2024,male,service & sales workers,102100
+2024,male,craftsmen & related trades workers,46500
+2024,male,plant & machine operators & assemblers,116800
+2024,male,"cleaners, labourers & related workers",73100
+2024,male,others,55800
+2024,female,managers & administrators (including working proprietors),162200
+2024,female,professionals,308400
+2024,female,associate professionals & technicians,243300
+2024,female,clerical support workers,161600
+2024,female,service & sales workers,138000
+2024,female,craftsmen & related trades workers,8300
+2024,female,plant & machine operators & assemblers,11600
+2024,female,"cleaners, labourers & related workers",92600
+2024,female,others,1600
+2025,male,managers & administrators (including working proprietors),244900
+2025,male,professionals,313100
+2025,male,associate professionals & technicians,237700
+2025,male,clerical support workers,51400
+2025,male,service & sales workers,109800
+2025,male,craftsmen & related trades workers,43300
+2025,male,plant & machine operators & assemblers,117000
+2025,male,"cleaners, labourers & related workers",74000
+2025,male,others,52300
+2025,female,managers & administrators (including working proprietors),160800
+2025,female,professionals,311300
+2025,female,associate professionals & technicians,257800
+2025,female,clerical support workers,149600
+2025,female,service & sales workers,137300
+2025,female,craftsmen & related trades workers,8300
+2025,female,plant & machine operators & assemblers,12000
+2025,female,"cleaners, labourers & related workers",93700
+2025,female,others,2300

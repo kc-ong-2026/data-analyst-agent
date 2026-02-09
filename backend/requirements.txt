@@ -1,0 +1,37 @@
+# FastAPI and server
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+pydantic==2.6.1
+pydantic-settings==2.1.0
+
+# LangChain and LangGraph
+langchain==0.1.9
+langchain-core==0.1.27
+langchain-community==0.0.24
+langchain-openai==0.0.6
+langchain-anthropic==0.1.1
+langchain-google-genai==0.0.9
+langgraph==0.0.26
+
+# Vector stores and embeddings
+chromadb==0.4.22
+faiss-cpu==1.7.4
+
+# PostgreSQL and pgvector
+asyncpg==0.29.0
+sqlalchemy[asyncio]==2.0.25
+pgvector==0.2.5
+psycopg2-binary==2.9.9
+
+# Data processing
+pandas==2.2.0
+openpyxl==3.1.2
+python-dotenv==1.0.1
+httpx==0.26.0
+
+# Async support
+aiofiles==23.2.1
+
+# CORS
+python-jose==3.3.0
