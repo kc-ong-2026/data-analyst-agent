@@ -75,8 +75,8 @@ rag:
 
 # Data Configuration
 data:
-  datasets_path: "../dataset"
-  api_specs_path: "../api_spec"
+  datasets_path: "dataset"
+  api_specs_path: "api_spec"
 
 # LangGraph Configuration
 langgraph:

@@ -57,12 +57,13 @@ Always be precise about which data you're extracting and from which source."""
         """Build the LangGraph workflow for data extraction.
 
         Flow:
-        retrieve_context -> load_raw_data -> extract_relevant_data -> format_output -> END
+        retrieve_context -> generate_sql_queries -> load_raw_data -> extract_relevant_data -> format_output -> END
         """
         workflow = StateGraph(GraphState)
 
         # Add nodes
         workflow.add_node("retrieve_context", self._retrieve_context_node)
+        workflow.add_node("generate_sql_queries", self._generate_sql_queries_node)
         workflow.add_node("load_raw_data", self._load_raw_data_node)
         workflow.add_node("extract_relevant_data", self._extract_relevant_data_node)
         workflow.add_node("format_output", self._format_output_node)
@@ -71,7 +72,8 @@ Always be precise about which data you're extracting and from which source."""
         workflow.set_entry_point("retrieve_context")
 
         # Add edges with conditional routing
-        workflow.add_edge("retrieve_context", "load_raw_data")
+        workflow.add_edge("retrieve_context", "generate_sql_queries")
+        workflow.add_edge("generate_sql_queries", "load_raw_data")
         workflow.add_conditional_edges(
             "load_raw_data",
             self._should_extract,
@@ -118,37 +120,42 @@ Always be precise about which data you're extracting and from which source."""
                     top_k=10,
                 )
 
-                if retrieval_result.chunks:
+                if retrieval_result.metadata_results:
                     logger.info(
-                        f"RAG retrieved {len(retrieval_result.chunks)} chunks "
-                        f"from {len(retrieval_result.datasets)} datasets"
+                        f"RAG retrieved {len(retrieval_result.metadata_results)} metadata results "
+                        f"with {len(retrieval_result.table_schemas)} table schemas"
                     )
 
-                    # Store retrieval context
+                    # Store retrieval context with table schemas for SQL generation
                     retrieval_context = {
-                        "chunks": [
+                        "metadata_results": [
                             {
-                                "chunk_id": c.chunk_id,
-                                "dataset_name": c.dataset_name,
-                                "chunk_text": c.chunk_text,
-                                "group_key": c.group_key,
-                                "score": c.score,
+                                "metadata_id": m.metadata_id,
+                                "category": m.category,
+                                "file_name": m.file_name,
+                                "table_name": m.table_name,
+                                "description": m.description,
+                                "columns": m.columns,
+                                "row_count": m.row_count,
+                                "score": m.score,
                             }
-                            for c in retrieval_result.chunks
+                            for m in retrieval_result.metadata_results
                         ],
-                        "datasets": [
+                        "table_schemas": [
                             {
-                                "dataset_name": d.dataset_name,
-                                "file_path": d.file_path,
-                                "category": d.category,
-                                "description": d.description,
-                                "columns": d.columns,
-                                "row_count": d.row_count,
-                                "year_range": d.year_range,
+                                "table_name": s.table_name,
+                                "category": s.category,
+                                "description": s.description,
+                                "columns": s.columns,
+                                "primary_dimensions": s.primary_dimensions,
+                                "numeric_columns": s.numeric_columns,
+                                "categorical_columns": s.categorical_columns,
+                                "row_count": s.row_count,
+                                "year_range": s.year_range,
+                                "sql_schema_prompt": s.sql_schema_prompt,
                             }
-                            for d in retrieval_result.datasets
+                            for s in retrieval_result.table_schemas
                         ],
-                        "raw_data": retrieval_result.raw_data,
                     }
 
                     return {
@@ -161,7 +168,7 @@ Always be precise about which data you're extracting and from which source."""
                     }
 
         except Exception as e:
-            logger.warning(f"RAG retrieval failed, falling back to file-based: {e}")
+            logger.warning(f"RAG retrieval failed, falling back to file-based: {e}", exc_info=True)
 
         # Fallback: file-based dataset matching
         return await self._fallback_identify_datasets(state, current_task, step_task, required_data)
@@ -219,66 +226,308 @@ Respond with a JSON list of the most relevant dataset paths:
             },
         }
 
+    async def _generate_sql_queries_node(self, state: GraphState) -> Dict[str, Any]:
+        """Node: Generate SQL queries for aggregation if needed."""
+        current_task = state.get("current_task", "")
+        retrieval_context = state.get("retrieval_context", {})
+
+        # Check if SQL aggregation is needed
+        if not self._requires_sql_aggregation(current_task):
+            logger.info("Query does not require SQL aggregation, skipping")
+            return {"sql_queries": [], "sql_results": {}}
+
+        # Get table schemas from retrieval context
+        table_schemas = retrieval_context.get("table_schemas", [])
+        if not table_schemas:
+            logger.info("No table schemas available for SQL generation")
+            return {"sql_queries": [], "sql_results": {}}
+
+        # Generate SQL queries using LLM
+        try:
+            sql_queries = await self._generate_sql_with_llm(current_task, table_schemas)
+            logger.info(f"Generated {len(sql_queries)} SQL queries")
+
+            # Validate SQL queries for safety
+            validated_queries = self._validate_sql_queries(sql_queries, table_schemas)
+            logger.info(f"Validated {len(validated_queries)} SQL queries")
+
+            # Execute SQL queries
+            sql_results = await self._execute_sql_queries(validated_queries)
+            logger.info(f"Executed SQL queries, got {len(sql_results)} result sets")
+
+            return {
+                "sql_queries": validated_queries,
+                "sql_results": sql_results,
+            }
+        except Exception as e:
+            logger.error(f"SQL generation/execution failed: {e}", exc_info=True)
+            return {
+                "sql_queries": [],
+                "sql_results": {},
+                "errors": state.get("errors", []) + [f"SQL generation failed: {str(e)}"],
+            }
+
+    def _requires_sql_aggregation(self, query: str) -> bool:
+        """Detect if query requires SQL aggregation.
+
+        Args:
+            query: User query
+
+        Returns:
+            True if query contains aggregation keywords
+        """
+        aggregation_keywords = [
+            "average", "avg", "mean",
+            "total", "sum",
+            "count", "number of",
+            "trend", "over time", "by year", "by month",
+            "group by", "grouped by",
+            "maximum", "max", "highest",
+            "minimum", "min", "lowest",
+            "median",
+            "compare", "comparison",
+            "distribution",
+            "percentage", "percent",
+        ]
+
+        query_lower = query.lower()
+        return any(keyword in query_lower for keyword in aggregation_keywords)
+
+    async def _generate_sql_with_llm(
+        self, query: str, table_schemas: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Generate SQL queries using LLM with table schemas.
+
+        Args:
+            query: User query
+            table_schemas: List of table schema dictionaries
+
+        Returns:
+            List of SQL query dictionaries with {sql, table_name, description}
+        """
+        # Build schema descriptions for LLM
+        schema_prompts = []
+        for schema in table_schemas[:3]:  # Limit to top 3 most relevant tables
+            schema_prompt = schema.get("sql_schema_prompt", "")
+            if schema_prompt:
+                schema_prompts.append(schema_prompt)
+
+        schemas_text = "\n\n".join(schema_prompts)
+
+        sql_prompt = f"""Generate SQL queries to answer the user's question using the provided table schemas.
+
+User Question: {query}
+
+Available Tables:
+{schemas_text}
+
+Requirements:
+1. Generate 1-3 SQL queries that answer the question
+2. Use proper PostgreSQL syntax
+3. Include appropriate WHERE clauses for filtering
+4. Use GROUP BY for aggregations
+5. Add ORDER BY for trends/sorting
+6. Include LIMIT 100 to prevent large result sets
+7. Use column names exactly as shown in the schema
+8. Only query the tables provided above
+
+Respond in JSON format:
+{{
+    "queries": [
+        {{
+            "sql": "SELECT ... FROM ...",
+            "table_name": "table_name",
+            "description": "what this query does"
+        }}
+    ]
+}}
+
+IMPORTANT: Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, or other modification commands."""
+
+        response = await self._invoke_llm([HumanMessage(content=sql_prompt)])
+        parsed = self._parse_json_response(response)
+
+        queries = parsed.get("queries", [])
+        return queries
+
+    def _validate_sql_queries(
+        self, queries: List[Dict[str, Any]], table_schemas: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Validate SQL queries for safety.
+
+        Args:
+            queries: List of SQL query dictionaries
+            table_schemas: Available table schemas
+
+        Returns:
+            List of validated SQL queries
+        """
+        validated = []
+        valid_tables = {schema.get("table_name") for schema in table_schemas}
+
+        # Dangerous SQL keywords
+        dangerous_keywords = [
+            "DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE", "ALTER",
+            "CREATE", "GRANT", "REVOKE", "EXEC", "EXECUTE", "--", ";--"
+        ]
+
+        for query_dict in queries:
+            sql = query_dict.get("sql", "")
+            table_name = query_dict.get("table_name", "")
+
+            if not sql or not table_name:
+                logger.warning("Skipping query with missing sql or table_name")
+                continue
+
+            # Check for dangerous keywords
+            sql_upper = sql.upper()
+            if any(keyword in sql_upper for keyword in dangerous_keywords):
+                logger.warning(f"Skipping query with dangerous keyword: {sql[:100]}")
+                continue
+
+            # Check table name is in valid list
+            if table_name not in valid_tables:
+                logger.warning(f"Skipping query for unknown table: {table_name}")
+                continue
+
+            # Ensure LIMIT is present
+            if "LIMIT" not in sql_upper:
+                sql += " LIMIT 100"
+                query_dict["sql"] = sql
+
+            validated.append(query_dict)
+
+        return validated
+
+    async def _execute_sql_queries(
+        self, queries: List[Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Execute validated SQL queries.
+
+        Args:
+            queries: List of validated SQL query dictionaries
+
+        Returns:
+            Dictionary mapping table names to result rows
+        """
+        from app.db.session import get_db
+
+        results = {}
+
+        async with get_db() as session:
+            for query_dict in queries:
+                sql = query_dict.get("sql", "")
+                table_name = query_dict.get("table_name", "")
+                description = query_dict.get("description", "")
+
+                try:
+                    # Execute query with text() for parameterized execution
+                    result = await session.execute(text(sql))
+                    rows = result.fetchall()
+                    columns = result.keys()
+
+                    # Convert to list of dicts
+                    result_data = [
+                        {col: val for col, val in zip(columns, row)}
+                        for row in rows
+                    ]
+
+                    # Store results with descriptive key
+                    result_key = f"{table_name}_{description}" if description else table_name
+                    results[result_key] = result_data
+
+                    logger.info(f"SQL query returned {len(result_data)} rows for {result_key}")
+                except Exception as e:
+                    logger.error(f"Failed to execute SQL for {table_name}: {e}")
+
+        return results
+
     async def _load_raw_data_node(self, state: GraphState) -> Dict[str, Any]:
-        """Node: Load data from RAG results or fall back to file loading."""
+        """Node: Load data from RAG results or fall back to file loading.
+
+        Merges SQL query results if available.
+        """
         intermediate = state.get("intermediate_results", {})
         source = intermediate.get("source", "file")
 
+        # Load data based on source
         if source == "rag":
-            return await self._load_from_rag(state)
+            result = await self._load_from_rag(state)
         else:
-            return await self._load_from_files(state)
+            result = await self._load_from_files(state)
+
+        # Merge SQL results if available
+        sql_results = state.get("sql_results", {})
+        if sql_results:
+            loaded_datasets = result.get("intermediate_results", {}).get("loaded_datasets", {})
+
+            # Add SQL results as separate datasets
+            for result_key, rows in sql_results.items():
+                if rows:
+                    # Extract columns from first row
+                    columns = list(rows[0].keys()) if rows else []
+                    loaded_datasets[f"SQL_{result_key}"] = {
+                        "path": "SQL query result",
+                        "columns": columns,
+                        "shape": [len(rows), len(columns)],
+                        "dtypes": {},
+                        "data": rows,
+                        "source": "sql",
+                    }
+
+            result["intermediate_results"]["loaded_datasets"] = loaded_datasets
+            logger.info(f"Merged {len(sql_results)} SQL result sets into loaded datasets")
+
+        return result
 
     async def _load_from_rag(self, state: GraphState) -> Dict[str, Any]:
-        """Load datasets from RAG retrieval results."""
+        """Load datasets from RAG retrieval results.
+
+        In folder-based architecture, we rely on SQL queries for data loading
+        rather than loading full datasets into memory.
+        """
         retrieval_context = state.get("intermediate_results", {}).get("retrieval_context", {})
-        raw_data = retrieval_context.get("raw_data", {})
-        datasets = retrieval_context.get("datasets", [])
-        chunks = retrieval_context.get("chunks", [])
+        metadata_results = retrieval_context.get("metadata_results", [])
 
         loaded_datasets = {}
 
-        # Group raw data by dataset name
-        for dataset_info in datasets:
-            ds_name = dataset_info["dataset_name"]
+        # Load sample data from data tables for preview/context
+        from app.db.session import get_db
 
-            # Collect all raw data rows for this dataset
-            all_rows = []
-            for key, rows in raw_data.items():
-                if key.startswith(ds_name):
-                    all_rows.extend(rows)
+        async with get_db() as session:
+            for metadata_info in metadata_results[:3]:  # Limit to top 3 results
+                table_name = metadata_info.get("table_name", "")
+                if not table_name:
+                    continue
 
-            # Get column info
-            columns = [c["name"] for c in dataset_info.get("columns", [])]
-
-            loaded_datasets[ds_name] = {
-                "path": dataset_info.get("file_path", ""),
-                "columns": columns,
-                "shape": [len(all_rows), len(columns)],
-                "dtypes": {c["name"]: c.get("dtype", "object") for c in dataset_info.get("columns", [])},
-                "data": all_rows if all_rows else [],
-                "rag_chunks": [
-                    c for c in chunks if c["dataset_name"] == ds_name
-                ],
-            }
-
-        # If RAG didn't return raw data, try loading from files
-        if not loaded_datasets:
-            for dataset_info in datasets:
                 try:
-                    file_path = dataset_info.get("file_path", "")
-                    if file_path:
-                        info = data_service.get_dataset_info(file_path)
-                        sample_data = data_service.query_dataset(file_path, limit=50)
-                        loaded_datasets[dataset_info["dataset_name"]] = {
-                            "path": file_path,
-                            "columns": info.get("columns", []),
-                            "shape": info.get("shape", [0, 0]),
-                            "dtypes": info.get("dtypes", {}),
-                            "data": sample_data,
-                        }
+                    # Load sample rows for context
+                    sample_sql = text(f'SELECT * FROM "{table_name}" LIMIT 50')
+                    result = await session.execute(sample_sql)
+                    rows = result.fetchall()
+                    columns_list = result.keys()
+
+                    sample_data = [
+                        {col: val for col, val in zip(columns_list, row)}
+                        for row in rows
+                    ]
+
+                    # Get column info
+                    columns = [c["name"] for c in metadata_info.get("columns", [])]
+
+                    loaded_datasets[table_name] = {
+                        "path": metadata_info.get("file_name", ""),
+                        "columns": columns,
+                        "shape": [metadata_info.get("row_count", 0), len(columns)],
+                        "dtypes": {c["name"]: c.get("dtype", "object") for c in metadata_info.get("columns", [])},
+                        "data": sample_data,
+                        "table_name": table_name,
+                        "source": "rag_folder",
+                    }
+
+                    logger.info(f"Loaded {len(sample_data)} sample rows from {table_name}")
                 except Exception as e:
-                    logger.warning(f"Failed to load {dataset_info['dataset_name']} from file: {e}")
+                    logger.warning(f"Failed to load sample data from {table_name}: {e}")
 
         return {
             "intermediate_results": {

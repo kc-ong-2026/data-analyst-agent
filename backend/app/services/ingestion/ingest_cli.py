@@ -27,17 +27,16 @@ async def run_ingestion() -> None:
             processor = DataProcessor()
             counts = await processor.process_all_datasets(session)
             logger.info(
-                f"Processed {counts['datasets']} datasets, "
-                f"{counts['chunks']} chunks, "
-                f"{counts['raw_tables']} raw tables"
+                f"Processed {counts['metadata_entries']} metadata entries, "
+                f"{counts['data_tables']} data tables, "
+                f"{counts['total_rows']} total rows"
             )
 
             # Step 2: Generate embeddings
             generator = EmbeddingGenerator()
             embed_counts = await generator.update_embeddings(session)
             logger.info(
-                f"Generated embeddings: {embed_counts['metadata']} metadata, "
-                f"{embed_counts['chunks']} chunks"
+                f"Generated {embed_counts.get('total', 0)} embeddings across all categories"
             )
 
         logger.info("Ingestion complete!")

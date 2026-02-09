@@ -18,17 +18,23 @@ async def _check_and_ingest() -> None:
     try:
         from app.db.session import async_session_factory, get_db
         if async_session_factory is None:
+            logger.info("Database not configured, skipping ingestion")
             return
 
         from sqlalchemy import text
 
         async with get_db() as session:
-            result = await session.execute(text("SELECT count(*) FROM dataset_metadata"))
-            count = result.scalar()
+            # Check if employment metadata table exists and has data
+            try:
+                result = await session.execute(text("SELECT count(*) FROM employment_dataset_metadata"))
+                count = result.scalar()
 
-            if count and count > 0:
-                logger.info(f"Database already has {count} datasets, skipping ingestion")
-                return
+                if count and count > 0:
+                    logger.info(f"Database already has {count} employment datasets, skipping ingestion")
+                    return
+            except Exception:
+                # Table doesn't exist yet, proceed with ingestion
+                pass
 
         logger.info("No datasets found in database, starting ingestion...")
 
@@ -39,20 +45,21 @@ async def _check_and_ingest() -> None:
             processor = DataProcessor()
             counts = await processor.process_all_datasets(session)
             logger.info(
-                f"Ingested {counts['datasets']} datasets, "
-                f"{counts['chunks']} chunks, "
-                f"{counts['raw_tables']} raw tables"
+                f"Ingested {counts['metadata_entries']} metadata entries, "
+                f"{counts['data_tables']} data tables, "
+                f"{counts['total_rows']} total rows"
             )
 
-            generator = EmbeddingGenerator()
-            embed_counts = await generator.update_embeddings(session)
-            logger.info(
-                f"Generated embeddings: {embed_counts['metadata']} metadata, "
-                f"{embed_counts['chunks']} chunks"
-            )
+            # Temporarily disable embeddings due to OpenAI quota
+            logger.info("Skipping embedding generation (OpenAI quota exceeded)")
+            # generator = EmbeddingGenerator()
+            # embed_counts = await generator.update_embeddings(session)
+            # logger.info(
+            #     f"Generated {embed_counts.get('total', 0)} embeddings across all categories"
+            # )
 
     except Exception as e:
-        logger.warning(f"Auto-ingestion skipped: {e}")
+        logger.warning(f"Auto-ingestion check failed: {e}", exc_info=False)
 
 
 @asynccontextmanager

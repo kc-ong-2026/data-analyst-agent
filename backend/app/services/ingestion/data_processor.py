@@ -1,4 +1,4 @@
-"""Data processor for ingesting datasets into PostgreSQL."""
+"""Data processor for ingesting datasets into folder-based PostgreSQL structure."""
 
 import logging
 import re
@@ -10,13 +10,28 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config
-from app.db.models import DataChunk, DatasetMetadata, RawDataTable
+from app.db.models import (
+    CATEGORY_MODELS,
+    DataTableRegistry,
+    EmploymentDatasetMetadata,
+    HoursWorkedDatasetMetadata,
+    IncomeDatasetMetadata,
+    LabourForceDatasetMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class DataProcessor:
-    """Processes dataset files into the three-tier RAG structure."""
+    """Processes dataset files into the folder-based RAG structure."""
+
+    # Folder names in the dataset directory
+    CATEGORY_FOLDERS = {
+        "employment": "employment_dataset",
+        "hours_worked": "hours_worked_dataset",
+        "income": "income_dataset",
+        "labour_force": "labour_force_dataset",
+    }
 
     def __init__(self, datasets_path: Optional[str] = None):
         self.datasets_path = Path(
@@ -25,76 +40,104 @@ class DataProcessor:
         )
 
     async def process_all_datasets(self, session: AsyncSession) -> Dict[str, int]:
-        """Process all dataset files in the datasets directory.
+        """Process all dataset files organized by category folders.
 
         Returns:
             Counts of processed items.
         """
-        counts = {"datasets": 0, "chunks": 0, "raw_tables": 0}
+        counts = {"metadata_entries": 0, "data_tables": 0, "total_rows": 0}
 
         if not self.datasets_path.exists():
             logger.warning(f"Datasets path does not exist: {self.datasets_path}")
             return counts
 
-        files = list(self.datasets_path.rglob("*"))
-        data_files = [f for f in files if f.suffix.lower() in (".csv", ".xlsx", ".xls")]
+        # Iterate through each category folder
+        for category, folder_name in self.CATEGORY_FOLDERS.items():
+            folder_path = self.datasets_path / "singapore_manpower_dataset" / folder_name
+            if not folder_path.exists():
+                logger.warning(f"Category folder not found: {folder_path}")
+                continue
 
-        logger.info(f"Found {len(data_files)} dataset files to process")
+            # Find all CSV/Excel files in this folder
+            data_files = list(folder_path.glob("*.csv")) + list(folder_path.glob("*.xlsx")) + list(folder_path.glob("*.xls"))
 
-        for file_path in data_files:
-            try:
-                result = await self._process_single_dataset(session, file_path)
-                counts["datasets"] += 1
-                counts["chunks"] += result["chunks"]
-                counts["raw_tables"] += 1
-                logger.info(f"Processed: {file_path.name} ({result['chunks']} chunks)")
-            except Exception as e:
-                logger.error(f"Failed to process {file_path.name}: {e}")
+            logger.info(f"Processing {len(data_files)} files in category '{category}'")
+
+            for file_path in data_files:
+                try:
+                    result = await self._process_single_file(session, file_path, category)
+                    await session.commit()  # Commit after each successful file
+                    counts["metadata_entries"] += 1
+                    counts["data_tables"] += 1
+                    counts["total_rows"] += result["row_count"]
+                    logger.info(f"Processed: {file_path.name} ({result['row_count']} rows)")
+                except Exception as e:
+                    logger.error(f"Failed to process {file_path.name}: {e}", exc_info=True)
+                    await session.rollback()  # Rollback on error to allow next file
 
         return counts
 
-    async def _process_single_dataset(
-        self, session: AsyncSession, file_path: Path
+    async def _process_single_file(
+        self, session: AsyncSession, file_path: Path, category: str
     ) -> Dict[str, int]:
-        """Process a single dataset file."""
-        # Load dataframe
+        """Process a single dataset file.
+
+        Args:
+            session: Database session
+            file_path: Path to the CSV/Excel file
+            category: Category name (employment, hours_worked, income, labour_force)
+
+        Returns:
+            Dictionary with processing statistics
+        """
+        # Load and clean dataframe
         df = self._load_dataframe(file_path)
         df = self._clean_dataframe(df)
 
-        # Detect dimensions
-        dimensions = self._detect_dimensions(df)
+        # Detect schema information
+        schema_info = self._detect_schema(df)
 
-        # Determine category from directory structure
-        relative_path = str(file_path.relative_to(self.datasets_path))
-        category = self._detect_category(relative_path)
+        # Generate table name for data
+        data_table_name = self._generate_table_name(category, file_path.stem)
 
-        # Generate dataset summary
-        summary_text = self._generate_dataset_summary(df, file_path, dimensions)
+        # Generate summary text
+        summary_text = self._generate_summary_text(df, file_path, schema_info)
 
-        # Create dataset metadata
-        metadata = DatasetMetadata(
-            dataset_name=file_path.stem,
-            file_path=relative_path,
-            category=category,
+        # Get the appropriate metadata model class
+        metadata_model = CATEGORY_MODELS[category]
+
+        # Create metadata entry
+        metadata = metadata_model(
+            file_name=file_path.name,
+            file_path=str(file_path.relative_to(self.datasets_path)),
             description=summary_text[:500],
-            columns=[{"name": col, "dtype": str(df[col].dtype)} for col in df.columns],
+            table_name=data_table_name,
+            columns=schema_info["columns"],
+            primary_dimensions=schema_info["primary_dimensions"],
+            numeric_columns=schema_info["numeric_columns"],
+            categorical_columns=schema_info["categorical_columns"],
             row_count=len(df),
-            year_range=dimensions.get("year_range", {}),
-            dimensions=dimensions,
+            year_range=schema_info["year_range"],
             summary_text=summary_text,
         )
         session.add(metadata)
         await session.flush()  # Get the ID
 
-        # Create chunks
-        chunks = self._create_chunks(df, metadata, dimensions)
-        for chunk in chunks:
-            session.add(chunk)
+        # Create data table with proper SQL types and indexes
+        await self._create_data_table(df, data_table_name, schema_info, session)
 
-        # Create raw data table
-        await self._create_raw_table(df, metadata, session)
+        # Register in data_table_registry
+        registry_entry = DataTableRegistry(
+            category=category,
+            metadata_table=f"{category}_dataset_metadata",
+            metadata_id=metadata.id,
+            data_table=data_table_name,
+            schema_info=schema_info,
+            index_info={"dimension_indexes": schema_info["primary_dimensions"]},
+        )
+        session.add(registry_entry)
 
-        return {"chunks": len(chunks)}
+        return {"row_count": len(df)}
 
     def _load_dataframe(self, file_path: Path) -> pd.DataFrame:
         """Load a dataset file into a pandas DataFrame."""
@@ -117,9 +160,7 @@ class DataProcessor:
         null_values = ["n.a.", "na", "n/a", "-", ".."]
         for col in df.columns:
             if df[col].dtype == object:
-                df[col] = df[col].replace(
-                    {v: None for v in null_values},
-                )
+                df[col] = df[col].replace({v: None for v in null_values})
                 # Try to coerce to numeric
                 try:
                     numeric = pd.to_numeric(df[col], errors="coerce")
@@ -131,9 +172,24 @@ class DataProcessor:
 
         return df
 
-    def _detect_dimensions(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Identify categorical dimensions and year/period columns."""
-        dimensions: Dict[str, Any] = {}
+    def _detect_schema(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Detect schema information for SQL generation.
+
+        Classifies columns as:
+        - Primary dimensions: year, categorical columns (for GROUP BY)
+        - Numeric columns: measures (for aggregation)
+        - Categorical columns: with cardinality and sample values
+
+        Returns:
+            Schema dictionary with columns, dimensions, measures, etc.
+        """
+        schema = {
+            "columns": [],
+            "primary_dimensions": [],
+            "numeric_columns": [],
+            "categorical_columns": [],
+            "year_range": None,
+        }
 
         # Detect year column
         year_col = None
@@ -144,264 +200,174 @@ class DataProcessor:
             # Check if column contains year-like values
             if df[col].dtype in ("int64", "float64"):
                 vals = df[col].dropna()
-                if len(vals) > 0:
-                    if vals.min() >= 1990 and vals.max() <= 2030:
-                        year_col = col
-                        break
+                if len(vals) > 0 and vals.min() >= 1990 and vals.max() <= 2030:
+                    year_col = col
+                    break
 
+        # Compute year range
         if year_col:
             vals = df[year_col].dropna()
-            dimensions["year_column"] = year_col
-            dimensions["year_range"] = {
-                "min": int(vals.min()) if len(vals) > 0 else None,
-                "max": int(vals.max()) if len(vals) > 0 else None,
-            }
+            if len(vals) > 0:
+                min_val = vals.min()
+                max_val = vals.max()
+                schema["year_range"] = {
+                    "min": int(min_val.item() if hasattr(min_val, 'item') else min_val),
+                    "max": int(max_val.item() if hasattr(max_val, 'item') else max_val),
+                }
+                schema["primary_dimensions"].append(year_col)
 
-        # Detect categorical columns (potential grouping dimensions)
-        categorical_cols = []
+        # Process each column
         for col in df.columns:
+            col_dtype = str(df[col].dtype)
+            nullable = bool(df[col].isna().any())  # Convert numpy bool_ to Python bool
+            sample_values = df[col].dropna().unique()[:5].tolist()
+
+            # Convert numpy types to Python native types
+            sample_values = [
+                val.item() if hasattr(val, 'item') else val
+                for val in sample_values
+            ]
+
+            # Add to columns list
+            schema["columns"].append({
+                "name": col,
+                "dtype": col_dtype,
+                "nullable": nullable,
+                "sample_values": sample_values,
+            })
+
+            # Classify column type
             if col == year_col:
-                continue
+                continue  # Already handled as dimension
+
             if df[col].dtype == object:
-                nunique = df[col].nunique()
-                # Categorical if between 2 and 50 unique values
-                if 2 <= nunique <= 50:
-                    categorical_cols.append({
+                # Categorical column
+                nunique = int(df[col].nunique())  # Convert numpy int to Python int
+                if 2 <= nunique <= 100:  # Reasonable cardinality for grouping
+                    schema["primary_dimensions"].append(col)
+                    unique_vals = sorted(df[col].dropna().unique().tolist())
+                    # Convert numpy types to Python native types
+                    unique_vals = [
+                        val.item() if hasattr(val, 'item') else val
+                        for val in unique_vals
+                    ]
+                    schema["categorical_columns"].append({
                         "column": col,
-                        "unique_values": sorted(df[col].dropna().unique().tolist()),
-                        "count": nunique,
+                        "cardinality": nunique,
+                        "values": unique_vals[:50],  # Limit to 50 values
                     })
 
-        dimensions["categorical_columns"] = categorical_cols
-
-        # Detect numeric columns
-        numeric_cols = []
-        for col in df.columns:
-            if col == year_col:
-                continue
-            if df[col].dtype in ("int64", "float64"):
+            elif df[col].dtype in ("int64", "float64"):
+                # Numeric column (measure)
                 vals = df[col].dropna()
-                if len(vals) > 0 and not (vals.min() >= 1990 and vals.max() <= 2030):
-                    numeric_cols.append(col)
+                if len(vals) > 0:
+                    # Skip if looks like a year column
+                    if not (vals.min() >= 1990 and vals.max() <= 2030):
+                        schema["numeric_columns"].append(col)
 
-        dimensions["numeric_columns"] = numeric_cols
+        return schema
 
-        return dimensions
+    def _generate_table_name(self, category: str, file_stem: str) -> str:
+        """Generate a sanitized table name.
 
-    def _detect_category(self, relative_path: str) -> str:
-        """Detect the dataset category from directory structure."""
-        parts = relative_path.lower().split("/")
-        for part in parts:
-            if "employment" in part:
-                return "employment"
-            elif "income" in part:
-                return "income"
-            elif "hours" in part:
-                return "hours_worked"
-            elif "labour" in part or "labor" in part:
-                return "labour_force"
+        Format: {category}_{sanitized_filename}
+        If truncation causes collision, adds hash suffix for uniqueness.
 
-        return "general"
+        Args:
+            category: Category name (employment, hours_worked, etc.)
+            file_stem: File name without extension
 
-    def _generate_dataset_summary(
-        self, df: pd.DataFrame, file_path: Path, dimensions: Dict[str, Any]
+        Returns:
+            Sanitized table name (max 63 chars for PostgreSQL)
+        """
+        import hashlib
+
+        # Sanitize file stem
+        sanitized = re.sub(r'[^a-z0-9_]', '_', file_stem.lower())
+        sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+
+        # Combine with category
+        table_name = f"{category}_{sanitized}"
+
+        # If name exceeds limit, truncate and add hash for uniqueness
+        if len(table_name) > 63:
+            # Generate short hash from full name for uniqueness
+            hash_suffix = hashlib.md5(table_name.encode()).hexdigest()[:8]
+            # Reserve 9 chars for _hash (underscore + 8 hex digits)
+            table_name = f"{table_name[:54]}_{hash_suffix}"
+
+        return table_name
+
+    def _generate_summary_text(
+        self, df: pd.DataFrame, file_path: Path, schema_info: Dict[str, Any]
     ) -> str:
         """Generate a natural-language summary for the dataset."""
         name = file_path.stem.replace("_", " ")
-        cols = list(df.columns)
         row_count = len(df)
 
         parts = [f"Dataset: {name}."]
-        parts.append(f"Contains {row_count} rows and {len(cols)} columns.")
-        parts.append(f"Columns: {', '.join(cols[:15])}.")
+        parts.append(f"Contains {row_count:,} rows.")
 
-        year_range = dimensions.get("year_range", {})
-        if year_range.get("min") and year_range.get("max"):
-            parts.append(
-                f"Covers years {year_range['min']} to {year_range['max']}."
-            )
+        # Year range
+        year_range = schema_info.get("year_range")
+        if year_range:
+            parts.append(f"Covers years {year_range['min']} to {year_range['max']}.")
 
-        for cat_col in dimensions.get("categorical_columns", [])[:3]:
-            values = cat_col["unique_values"][:10]
+        # Dimensions
+        if schema_info["primary_dimensions"]:
+            parts.append(f"Dimensions: {', '.join(schema_info['primary_dimensions'])}.")
+
+        # Categorical columns with values
+        for cat_col in schema_info["categorical_columns"][:3]:
+            values = cat_col["values"][:10]
             parts.append(
-                f"Dimension '{cat_col['column']}' has {cat_col['count']} categories"
+                f"Dimension '{cat_col['column']}' has {cat_col['cardinality']} categories"
                 f" including: {', '.join(str(v) for v in values)}."
             )
 
-        numeric_cols = dimensions.get("numeric_columns", [])
-        if numeric_cols:
-            parts.append(f"Numeric measures: {', '.join(numeric_cols[:10])}.")
+        # Numeric measures
+        if schema_info["numeric_columns"]:
+            parts.append(f"Numeric measures: {', '.join(schema_info['numeric_columns'][:10])}.")
 
         return " ".join(parts)
 
-    def _create_chunks(
+    async def _create_data_table(
         self,
         df: pd.DataFrame,
-        metadata: DatasetMetadata,
-        dimensions: Dict[str, Any],
-    ) -> List[DataChunk]:
-        """Create group-level chunks from the dataframe."""
-        chunks = []
-
-        # Determine grouping columns
-        year_col = dimensions.get("year_column")
-        cat_cols = [c["column"] for c in dimensions.get("categorical_columns", [])]
-
-        # Pick primary grouping: year + first categorical column
-        group_cols = []
-        if year_col:
-            group_cols.append(year_col)
-        if cat_cols:
-            group_cols.append(cat_cols[0])
-
-        if not group_cols:
-            # No grouping possible — create a single chunk for the whole dataset
-            chunk_text = self._render_chunk_text(
-                df, metadata.dataset_name, {}
-            )
-            chunks.append(
-                DataChunk(
-                    dataset_id=metadata.id,
-                    chunk_type="full",
-                    group_key={},
-                    chunk_text=chunk_text,
-                    row_count=len(df),
-                    numeric_summary=self._compute_numeric_summary(df, dimensions),
-                )
-            )
-            return chunks
-
-        # Group and create chunks
-        try:
-            grouped = df.groupby(group_cols, dropna=False)
-        except Exception as e:
-            logger.warning(f"Grouping failed for {metadata.dataset_name}: {e}")
-            chunk_text = self._render_chunk_text(df, metadata.dataset_name, {})
-            chunks.append(
-                DataChunk(
-                    dataset_id=metadata.id,
-                    chunk_type="full",
-                    group_key={},
-                    chunk_text=chunk_text,
-                    row_count=len(df),
-                    numeric_summary=self._compute_numeric_summary(df, dimensions),
-                )
-            )
-            return chunks
-
-        for group_key_vals, group_df in grouped:
-            if not isinstance(group_key_vals, tuple):
-                group_key_vals = (group_key_vals,)
-
-            group_key = {}
-            for col, val in zip(group_cols, group_key_vals):
-                group_key[col] = str(val) if pd.notna(val) else None
-
-            chunk_text = self._render_chunk_text(
-                group_df, metadata.dataset_name, group_key
-            )
-
-            chunks.append(
-                DataChunk(
-                    dataset_id=metadata.id,
-                    chunk_type="group",
-                    group_key=group_key,
-                    chunk_text=chunk_text,
-                    row_count=len(group_df),
-                    numeric_summary=self._compute_numeric_summary(group_df, dimensions),
-                )
-            )
-
-        return chunks
-
-    def _render_chunk_text(
-        self, df: pd.DataFrame, dataset_name: str, group_key: Dict[str, Any]
-    ) -> str:
-        """Render a natural-language summary for a chunk group."""
-        name = dataset_name.replace("_", " ")
-        parts = [f"From dataset '{name}'."]
-
-        if group_key:
-            conditions = [f"{k}={v}" for k, v in group_key.items() if v is not None]
-            if conditions:
-                parts.append(f"Group: {', '.join(conditions)}.")
-
-        # Summarize numeric columns
-        numeric_cols = df.select_dtypes(include=["number"]).columns
-        for col in numeric_cols[:5]:
-            vals = df[col].dropna()
-            if len(vals) == 0:
-                continue
-            col_name = col.replace("_", " ")
-            if len(vals) == 1:
-                parts.append(f"{col_name}: {vals.iloc[0]}.")
-            else:
-                parts.append(
-                    f"{col_name}: min={vals.min()}, max={vals.max()}, "
-                    f"mean={vals.mean():.2f}."
-                )
-
-        # Include first few rows as text
-        sample = df.head(3)
-        for _, row in sample.iterrows():
-            row_parts = []
-            for col in df.columns[:8]:
-                val = row[col]
-                if pd.notna(val):
-                    row_parts.append(f"{col.replace('_', ' ')}={val}")
-            if row_parts:
-                parts.append(f"Row: {', '.join(row_parts)}.")
-
-        return " ".join(parts)
-
-    def _compute_numeric_summary(
-        self, df: pd.DataFrame, dimensions: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Compute summary statistics for numeric columns."""
-        summary = {}
-        numeric_cols = dimensions.get("numeric_columns", [])
-
-        for col in numeric_cols:
-            if col not in df.columns:
-                continue
-            vals = df[col].dropna()
-            if len(vals) == 0:
-                continue
-            summary[col] = {
-                "min": float(vals.min()),
-                "max": float(vals.max()),
-                "mean": float(vals.mean()),
-                "count": int(vals.count()),
-            }
-
-        return summary
-
-    async def _create_raw_table(
-        self,
-        df: pd.DataFrame,
-        metadata: DatasetMetadata,
+        table_name: str,
+        schema_info: Dict[str, Any],
         session: AsyncSession,
     ) -> None:
-        """Create a raw data table and bulk insert rows."""
-        # Sanitize table name
-        table_name = "raw_" + re.sub(r'[^a-z0-9]', '_', metadata.dataset_name.lower())
-        table_name = re.sub(r'_+', '_', table_name).strip('_')[:63]
+        """Create a data table with proper SQL types and indexes.
 
-        # Build column definitions
+        Args:
+            df: DataFrame with data
+            table_name: Name for the SQL table
+            schema_info: Schema information from _detect_schema
+            session: Database session
+        """
+        # Build column definitions with proper SQL types
         col_defs = []
-        col_names = []
-        for col in df.columns:
-            safe_col = re.sub(r'[^a-z0-9_]', '_', col.lower()).strip('_')[:63]
+        col_name_mapping = {}  # original -> safe
+
+        for col_info in schema_info["columns"]:
+            orig_col = col_info["name"]
+            safe_col = re.sub(r'[^a-z0-9_]', '_', orig_col.lower()).strip('_')[:63]
             if not safe_col:
                 safe_col = "col"
-            col_names.append(safe_col)
 
-            if df[col].dtype in ("int64",):
-                col_defs.append(f'"{safe_col}" BIGINT')
-            elif df[col].dtype in ("float64",):
-                col_defs.append(f'"{safe_col}" DOUBLE PRECISION')
+            col_name_mapping[orig_col] = safe_col
+
+            # Determine SQL type
+            dtype = col_info["dtype"]
+            if "int" in dtype:
+                sql_type = "BIGINT"
+            elif "float" in dtype:
+                sql_type = "DOUBLE PRECISION"
             else:
-                col_defs.append(f'"{safe_col}" TEXT')
+                sql_type = "TEXT"
+
+            col_defs.append(f'"{safe_col}" {sql_type}')
 
         # Drop existing table if any
         await session.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
@@ -410,16 +376,35 @@ class DataProcessor:
         create_sql = f'CREATE TABLE "{table_name}" (id SERIAL PRIMARY KEY, {", ".join(col_defs)})'
         await session.execute(text(create_sql))
 
-        # Bulk insert using executemany with parameterized queries
+        # Create indexes on dimension columns for fast filtering
+        for dimension in schema_info["primary_dimensions"]:
+            if dimension in col_name_mapping:
+                safe_col = col_name_mapping[dimension]
+                # Create unique index name by including column name at the end
+                # and ensure it fits in 63 char limit
+                base_name = f"idx_{table_name}"
+                remaining_chars = 63 - len(base_name) - 1  # -1 for underscore
+                truncated_col = safe_col[:remaining_chars]
+                index_name = f"{base_name}_{truncated_col}"
+
+                try:
+                    await session.execute(
+                        text(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ("{safe_col}")')
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create index {index_name}: {e}")
+
+        # Bulk insert data
         if len(df) > 0:
-            placeholders = ", ".join([f":col{i}" for i in range(len(col_names))])
-            col_list = ", ".join([f'"{c}"' for c in col_names])
+            safe_col_names = [col_name_mapping[col] for col in df.columns]
+            placeholders = ", ".join([f":col{i}" for i in range(len(safe_col_names))])
+            col_list = ", ".join([f'"{c}"' for c in safe_col_names])
             insert_sql = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders})'
 
             rows = []
             for _, row in df.iterrows():
                 params = {}
-                for i, (orig_col, safe_col) in enumerate(zip(df.columns, col_names)):
+                for i, orig_col in enumerate(df.columns):
                     val = row[orig_col]
                     if pd.isna(val):
                         params[f"col{i}"] = None
@@ -433,11 +418,4 @@ class DataProcessor:
                 batch = rows[i:i + batch_size]
                 await session.execute(text(insert_sql), batch)
 
-        # Register in raw_data_tables
-        raw_table = RawDataTable(
-            dataset_id=metadata.id,
-            table_name=table_name,
-            columns=[{"original": orig, "safe": safe} for orig, safe in zip(df.columns, col_names)],
-            row_count=len(df),
-        )
-        session.add(raw_table)
+        logger.info(f"Created table '{table_name}' with {len(df)} rows")

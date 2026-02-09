@@ -1,23 +1,37 @@
-"""RAG service with hybrid vector + full-text search and RRF fusion."""
+"""RAG service with folder-based hybrid vector + full-text search and RRF fusion."""
 
 import logging
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config
-from app.db.models import DataChunk, DatasetMetadata, RawDataTable
+from app.db.models import (
+    EmploymentDatasetMetadata,
+    HoursWorkedDatasetMetadata,
+    IncomeDatasetMetadata,
+    LabourForceDatasetMetadata,
+    FolderMetadataBase,
+)
 from app.db.session import get_db
 from app.services.llm_service import get_embedding_service
-from app.services.rag_models import ChunkResult, DatasetResult, RetrievalResult
+from app.services.rag_models import MetadataResult, TableSchema, FolderRetrievalResult
 
 logger = logging.getLogger(__name__)
 
 
 class RAGService:
-    """Hybrid retrieval engine using pgvector + full-text search with RRF fusion."""
+    """Hybrid retrieval engine using folder-based metadata with pgvector + full-text search with RRF fusion."""
+
+    # List of (category_name, model_class, table_name) tuples
+    FOLDER_TABLES: List[Tuple[str, type, str]] = [
+        ("employment", EmploymentDatasetMetadata, "employment_dataset_metadata"),
+        ("hours_worked", HoursWorkedDatasetMetadata, "hours_worked_dataset_metadata"),
+        ("income", IncomeDatasetMetadata, "income_dataset_metadata"),
+        ("labour_force", LabourForceDatasetMetadata, "labour_force_dataset_metadata"),
+    ]
 
     def __init__(self):
         rag_config = config.get_rag_config()
@@ -33,17 +47,17 @@ class RAGService:
         top_k: Optional[int] = None,
         category_filter: Optional[str] = None,
         year_filter: Optional[Dict[str, int]] = None,
-    ) -> RetrievalResult:
-        """Perform hybrid retrieval: vector search + full-text search + RRF fusion.
+    ) -> FolderRetrievalResult:
+        """Perform hybrid retrieval across folder metadata tables.
 
         Args:
             query: The search query.
             top_k: Number of results to return.
-            category_filter: Optional category to filter by.
+            category_filter: Optional category to filter by (employment, hours_worked, income, labour_force).
             year_filter: Optional year range dict {"start": int, "end": int}.
 
         Returns:
-            RetrievalResult with chunks, datasets, and raw data.
+            FolderRetrievalResult with metadata and table schemas.
         """
         top_k = top_k or self.hybrid_top_k
 
@@ -51,68 +65,111 @@ class RAGService:
         query_embedding = await embedding_service.embed_query(query)
 
         async with get_db() as session:
-            # Run vector search and full-text search
-            vector_results = await self._vector_search(
-                session, query_embedding, category_filter, year_filter
-            )
-            fulltext_results = await self._fulltext_search(
-                session, query, category_filter, year_filter
-            )
+            all_metadata_results: List[MetadataResult] = []
 
-            # RRF fusion
-            fused = self._rrf_fuse(vector_results, fulltext_results, top_k)
+            # Search each folder table (or just the filtered category)
+            folders_to_search = self.FOLDER_TABLES
+            if category_filter:
+                folders_to_search = [
+                    (cat, model, table) for cat, model, table in self.FOLDER_TABLES
+                    if cat == category_filter
+                ]
 
-            # Fetch dataset metadata for matched chunks
-            dataset_ids = list({c.dataset_id for c in fused})
-            datasets = await self._get_datasets(session, dataset_ids)
+            for category, model_class, table_name in folders_to_search:
+                results = await self._search_folder_table(
+                    session,
+                    model_class,
+                    table_name,
+                    category,
+                    query,
+                    query_embedding,
+                    year_filter,
+                )
+                all_metadata_results.extend(results)
 
-            # Fetch raw data for matched chunks
-            raw_data = await self._get_raw_data(session, fused, dataset_ids)
+            # Sort by score and take top_k
+            all_metadata_results.sort(key=lambda x: x.score, reverse=True)
+            top_metadata_results = all_metadata_results[:top_k]
 
-        return RetrievalResult(
+            # Get full table schemas for SQL generation
+            table_schemas = await self._get_table_schemas(session, top_metadata_results)
+
+        return FolderRetrievalResult(
             query=query,
-            chunks=fused,
-            datasets=datasets,
-            raw_data=raw_data,
+            metadata_results=top_metadata_results,
+            table_schemas=table_schemas,
+            total_results=len(all_metadata_results),
         )
 
-    async def _vector_search(
+    async def _search_folder_table(
         self,
         session: AsyncSession,
+        model_class: type,
+        table_name: str,
+        category: str,
+        query: str,
         query_embedding: List[float],
-        category_filter: Optional[str],
         year_filter: Optional[Dict[str, int]],
-    ) -> List[ChunkResult]:
-        """Perform cosine similarity search on chunk embeddings."""
+    ) -> List[MetadataResult]:
+        """Perform hybrid search (vector + full-text + RRF) on a single folder metadata table.
+
+        Args:
+            session: Database session
+            model_class: ORM model class for this folder
+            table_name: SQL table name
+            category: Category name
+            query: Search query
+            query_embedding: Query embedding vector
+            year_filter: Optional year range filter
+
+        Returns:
+            List of MetadataResult objects with RRF scores
+        """
+        # Run vector search
+        vector_results = await self._folder_vector_search(
+            session, table_name, category, query_embedding, year_filter
+        )
+
+        # Run full-text search
+        fulltext_results = await self._folder_fulltext_search(
+            session, table_name, category, query, year_filter
+        )
+
+        # RRF fusion
+        fused = self._rrf_fuse_metadata(vector_results, fulltext_results, top_k=10)
+
+        return fused
+
+    async def _folder_vector_search(
+        self,
+        session: AsyncSession,
+        table_name: str,
+        category: str,
+        query_embedding: List[float],
+        year_filter: Optional[Dict[str, int]],
+    ) -> List[MetadataResult]:
+        """Perform cosine similarity search on folder metadata embeddings."""
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
-        where_clauses = ["c.embedding IS NOT NULL"]
+        where_clauses = ["m.embedding IS NOT NULL"]
         params: Dict[str, Any] = {"embedding": embedding_str, "limit": self.vector_top_k}
-
-        if category_filter:
-            where_clauses.append("m.category = :category")
-            params["category"] = category_filter
 
         if year_filter:
             if year_filter.get("start"):
-                where_clauses.append(
-                    "(m.year_range->>'max')::int >= :year_start"
-                )
+                where_clauses.append("(m.year_range->>'max')::int >= :year_start")
                 params["year_start"] = year_filter["start"]
             if year_filter.get("end"):
-                where_clauses.append(
-                    "(m.year_range->>'min')::int <= :year_end"
-                )
+                where_clauses.append("(m.year_range->>'min')::int <= :year_end")
                 params["year_end"] = year_filter["end"]
 
         where_sql = " AND ".join(where_clauses)
 
         sql = text(f"""
-            SELECT c.id, c.dataset_id, m.dataset_name, c.chunk_type,
-                   c.group_key, c.chunk_text, c.row_count, c.numeric_summary,
-                   c.embedding <=> :embedding::vector AS distance
-            FROM data_chunks c
-            JOIN dataset_metadata m ON c.dataset_id = m.id
+            SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
+                   m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
+                   m.row_count, m.year_range, m.summary_text,
+                   m.embedding <=> :embedding::vector AS distance
+            FROM {table_name} m
             WHERE {where_sql}
             ORDER BY distance
             LIMIT :limit
@@ -122,57 +179,55 @@ class RAGService:
         rows = result.fetchall()
 
         return [
-            ChunkResult(
-                chunk_id=row[0],
-                dataset_id=row[1],
-                dataset_name=row[2],
-                chunk_type=row[3],
-                group_key=row[4] or {},
-                chunk_text=row[5],
-                row_count=row[6],
-                numeric_summary=row[7] or {},
-                score=1.0 - (row[8] or 1.0),  # Convert distance to similarity
+            MetadataResult(
+                metadata_id=row[0],
+                category=category,
+                file_name=row[1],
+                file_path=row[2],
+                table_name=row[3],
+                description=row[4] or "",
+                columns=row[5] or [],
+                primary_dimensions=row[6] or [],
+                numeric_columns=row[7] or [],
+                categorical_columns=row[8] or [],
+                row_count=row[9] or 0,
+                year_range=row[10],
+                summary_text=row[11] or "",
+                score=1.0 - (row[12] or 1.0),  # Convert distance to similarity
             )
             for row in rows
         ]
 
-    async def _fulltext_search(
+    async def _folder_fulltext_search(
         self,
         session: AsyncSession,
+        table_name: str,
+        category: str,
         query: str,
-        category_filter: Optional[str],
         year_filter: Optional[Dict[str, int]],
-    ) -> List[ChunkResult]:
-        """Perform full-text search using tsvector/tsquery."""
-        where_clauses = ["c.tsv IS NOT NULL"]
+    ) -> List[MetadataResult]:
+        """Perform full-text search using tsvector/tsquery on folder metadata."""
+        where_clauses = ["m.tsv IS NOT NULL"]
         params: Dict[str, Any] = {"query": query, "limit": self.fulltext_top_k}
-
-        if category_filter:
-            where_clauses.append("m.category = :category")
-            params["category"] = category_filter
 
         if year_filter:
             if year_filter.get("start"):
-                where_clauses.append(
-                    "(m.year_range->>'max')::int >= :year_start"
-                )
+                where_clauses.append("(m.year_range->>'max')::int >= :year_start")
                 params["year_start"] = year_filter["start"]
             if year_filter.get("end"):
-                where_clauses.append(
-                    "(m.year_range->>'min')::int <= :year_end"
-                )
+                where_clauses.append("(m.year_range->>'min')::int <= :year_end")
                 params["year_end"] = year_filter["end"]
 
         where_sql = " AND ".join(where_clauses)
 
         sql = text(f"""
-            SELECT c.id, c.dataset_id, m.dataset_name, c.chunk_type,
-                   c.group_key, c.chunk_text, c.row_count, c.numeric_summary,
-                   ts_rank_cd(c.tsv, plainto_tsquery('english', :query)) AS rank
-            FROM data_chunks c
-            JOIN dataset_metadata m ON c.dataset_id = m.id
+            SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
+                   m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
+                   m.row_count, m.year_range, m.summary_text,
+                   ts_rank_cd(m.tsv, plainto_tsquery('english', :query)) AS rank
+            FROM {table_name} m
             WHERE {where_sql}
-              AND c.tsv @@ plainto_tsquery('english', :query)
+              AND m.tsv @@ plainto_tsquery('english', :query)
             ORDER BY rank DESC
             LIMIT :limit
         """)
@@ -181,138 +236,114 @@ class RAGService:
         rows = result.fetchall()
 
         return [
-            ChunkResult(
-                chunk_id=row[0],
-                dataset_id=row[1],
-                dataset_name=row[2],
-                chunk_type=row[3],
-                group_key=row[4] or {},
-                chunk_text=row[5],
-                row_count=row[6],
-                numeric_summary=row[7] or {},
-                score=float(row[8] or 0),
+            MetadataResult(
+                metadata_id=row[0],
+                category=category,
+                file_name=row[1],
+                file_path=row[2],
+                table_name=row[3],
+                description=row[4] or "",
+                columns=row[5] or [],
+                primary_dimensions=row[6] or [],
+                numeric_columns=row[7] or [],
+                categorical_columns=row[8] or [],
+                row_count=row[9] or 0,
+                year_range=row[10],
+                summary_text=row[11] or "",
+                score=float(row[12] or 0),
             )
             for row in rows
         ]
 
-    def _rrf_fuse(
+    def _rrf_fuse_metadata(
         self,
-        vector_results: List[ChunkResult],
-        fulltext_results: List[ChunkResult],
+        vector_results: List[MetadataResult],
+        fulltext_results: List[MetadataResult],
         top_k: int,
-    ) -> List[ChunkResult]:
-        """Reciprocal Rank Fusion to combine vector and full-text results."""
+    ) -> List[MetadataResult]:
+        """Reciprocal Rank Fusion to combine vector and full-text metadata results."""
         scores: Dict[int, float] = defaultdict(float)
-        chunks_by_id: Dict[int, ChunkResult] = {}
+        metadata_by_id: Dict[int, MetadataResult] = {}
 
         # Score from vector search
-        for rank, chunk in enumerate(vector_results):
-            scores[chunk.chunk_id] += 1.0 / (self.rrf_k + rank + 1)
-            chunks_by_id[chunk.chunk_id] = chunk
+        for rank, metadata in enumerate(vector_results):
+            scores[metadata.metadata_id] += 1.0 / (self.rrf_k + rank + 1)
+            metadata_by_id[metadata.metadata_id] = metadata
 
         # Score from full-text search
-        for rank, chunk in enumerate(fulltext_results):
-            scores[chunk.chunk_id] += 1.0 / (self.rrf_k + rank + 1)
-            if chunk.chunk_id not in chunks_by_id:
-                chunks_by_id[chunk.chunk_id] = chunk
+        for rank, metadata in enumerate(fulltext_results):
+            scores[metadata.metadata_id] += 1.0 / (self.rrf_k + rank + 1)
+            if metadata.metadata_id not in metadata_by_id:
+                metadata_by_id[metadata.metadata_id] = metadata
 
         # Sort by combined RRF score
         sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
 
         results = []
-        for chunk_id in sorted_ids[:top_k]:
-            chunk = chunks_by_id[chunk_id]
-            chunk.score = scores[chunk_id]
-            results.append(chunk)
+        for metadata_id in sorted_ids[:top_k]:
+            metadata = metadata_by_id[metadata_id]
+            metadata.score = scores[metadata_id]
+            results.append(metadata)
 
         return results
 
-    async def _get_datasets(
-        self, session: AsyncSession, dataset_ids: List[int]
-    ) -> List[DatasetResult]:
-        """Fetch dataset metadata for given IDs."""
-        if not dataset_ids:
-            return []
-
-        result = await session.execute(
-            select(DatasetMetadata).where(DatasetMetadata.id.in_(dataset_ids))
-        )
-        rows = result.scalars().all()
-
-        return [
-            DatasetResult(
-                dataset_id=row.id,
-                dataset_name=row.dataset_name,
-                file_path=row.file_path,
-                category=row.category or "",
-                description=row.description or "",
-                columns=row.columns or [],
-                row_count=row.row_count or 0,
-                year_range=row.year_range or {},
-                summary_text=row.summary_text or "",
-            )
-            for row in rows
-        ]
-
-    async def _get_raw_data(
+    async def _get_table_schemas(
         self,
         session: AsyncSession,
-        chunks: List[ChunkResult],
-        dataset_ids: List[int],
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """Fetch raw data from raw tables using chunk group_keys."""
-        if not chunks or not dataset_ids:
-            return {}
+        metadata_results: List[MetadataResult],
+    ) -> List[TableSchema]:
+        """Fetch full table schemas for SQL generation.
 
-        # Get raw table names for these datasets
-        result = await session.execute(
-            select(RawDataTable).where(RawDataTable.dataset_id.in_(dataset_ids))
-        )
-        raw_tables = {rt.dataset_id: rt for rt in result.scalars().all()}
+        Args:
+            session: Database session
+            metadata_results: List of metadata results
 
-        raw_data: Dict[str, List[Dict[str, Any]]] = {}
+        Returns:
+            List of TableSchema objects with formatted SQL schema prompts
+        """
+        table_schemas = []
 
-        for chunk in chunks:
-            rt = raw_tables.get(chunk.dataset_id)
-            if not rt:
+        # Group by category to minimize queries
+        by_category: Dict[str, List[MetadataResult]] = defaultdict(list)
+        for result in metadata_results:
+            by_category[result.category].append(result)
+
+        # Fetch schemas from each folder table
+        for category, results in by_category.items():
+            # Find the model class for this category
+            model_class = None
+            for cat, model, table in self.FOLDER_TABLES:
+                if cat == category:
+                    model_class = model
+                    break
+
+            if not model_class:
                 continue
 
-            # Build WHERE clause from group_key
-            where_parts = []
-            params: Dict[str, Any] = {}
-            col_map = {c["original"]: c["safe"] for c in (rt.columns or [])}
+            # Get metadata IDs
+            metadata_ids = [r.metadata_id for r in results]
 
-            for key, value in (chunk.group_key or {}).items():
-                if value is None:
-                    continue
-                # Find the safe column name
-                safe_col = col_map.get(key, key)
-                param_name = f"p_{safe_col}"
-                where_parts.append(f'"{safe_col}"::text = :{param_name}')
-                params[param_name] = str(value)
+            # Fetch full metadata objects
+            db_result = await session.execute(
+                select(model_class).where(model_class.id.in_(metadata_ids))
+            )
+            metadata_rows = db_result.scalars().all()
 
-            where_sql = " AND ".join(where_parts) if where_parts else "1=1"
-
-            try:
-                sql = text(
-                    f'SELECT * FROM "{rt.table_name}" WHERE {where_sql} LIMIT 100'
+            # Convert to TableSchema objects
+            for row in metadata_rows:
+                table_schemas.append(
+                    TableSchema(
+                        table_name=row.table_name,
+                        category=category,
+                        description=row.description or "",
+                        columns=row.columns or [],
+                        primary_dimensions=row.primary_dimensions or [],
+                        numeric_columns=row.numeric_columns or [],
+                        categorical_columns=row.categorical_columns or [],
+                        row_count=row.row_count or 0,
+                        year_range=row.year_range,
+                        sql_schema_prompt=row.get_sql_schema_prompt(),
+                    )
                 )
-                result = await session.execute(sql, params)
-                rows = result.fetchall()
-                columns = result.keys()
 
-                key_label = f"{chunk.dataset_name}"
-                if chunk.group_key:
-                    key_parts = [f"{k}={v}" for k, v in chunk.group_key.items() if v]
-                    if key_parts:
-                        key_label += f" ({', '.join(key_parts)})"
-
-                if key_label not in raw_data:
-                    raw_data[key_label] = [
-                        {col: val for col, val in zip(columns, row)}
-                        for row in rows
-                    ]
-            except Exception as e:
-                logger.warning(f"Failed to query raw table {rt.table_name}: {e}")
-
-        return raw_data
+        return table_schemas

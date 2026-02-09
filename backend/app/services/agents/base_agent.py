@@ -29,7 +29,9 @@ class GraphState(TypedDict):
     metadata: Dict[str, Any]
     intermediate_results: Dict[str, Any]
     should_continue: bool
-    retrieval_context: Dict[str, Any]
+    retrieval_context: Dict[str, Any]  # Now includes table_schemas for SQL generation
+    sql_queries: List[Dict[str, Any]]  # Generated SQL queries [{sql, params, table_name}]
+    sql_results: Dict[str, List[Dict[str, Any]]]  # Execution results {table_name: [rows]}
 
 
 @dataclass
@@ -72,6 +74,8 @@ class AgentState:
             "intermediate_results": {},
             "should_continue": True,
             "retrieval_context": {},
+            "sql_queries": [],
+            "sql_results": {},
         }
 
     @classmethod
