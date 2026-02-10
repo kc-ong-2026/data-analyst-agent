@@ -3,15 +3,17 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Annotated, Dict, List, Optional, TypedDict
+from typing import Any, Annotated, Dict, List, Optional, TypedDict, Union
 import operator
 
+from pydantic import BaseModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 
 
 class AgentRole(Enum):
     """Enum defining agent roles in the system."""
+    VERIFICATION = "verification"
     COORDINATOR = "coordinator"
     EXTRACTION = "extraction"
     ANALYTICS = "analytics"
@@ -32,6 +34,8 @@ class GraphState(TypedDict):
     retrieval_context: Dict[str, Any]  # Now includes table_schemas for SQL generation
     sql_queries: List[Dict[str, Any]]  # Generated SQL queries [{sql, params, table_name}]
     sql_results: Dict[str, List[Dict[str, Any]]]  # Execution results {table_name: [rows]}
+    query_validation: Dict[str, Any]  # Validation result and context
+    available_years: Dict[str, Dict[str, int]]  # Year ranges by category
 
 
 @dataclass
@@ -76,6 +80,8 @@ class AgentState:
             "retrieval_context": {},
             "sql_queries": [],
             "sql_results": {},
+            "query_validation": {},
+            "available_years": {},
         }
 
     @classmethod
@@ -107,22 +113,30 @@ class AgentState:
 
 @dataclass
 class AgentResponse:
-    """Response from an agent execution."""
+    """Response from an agent execution.
+
+    Supports both Pydantic models and dictionaries for data/visualization fields.
+    This provides backward compatibility during migration to Pydantic models.
+    """
 
     success: bool
     message: str
-    data: Dict[str, Any] = field(default_factory=dict)
-    visualization: Optional[Dict[str, Any]] = None
+    data: Union[BaseModel, Dict[str, Any]] = field(default_factory=dict)
+    visualization: Optional[Union[BaseModel, Dict[str, Any]]] = None
     next_agent: Optional[AgentRole] = None
     state: Optional[AgentState] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert response to dictionary."""
+        """Convert response to dictionary, handling Pydantic models."""
         return {
             "success": self.success,
             "message": self.message,
-            "data": self.data,
-            "visualization": self.visualization,
+            "data": self.data.model_dump() if isinstance(self.data, BaseModel) else self.data,
+            "visualization": (
+                self.visualization.model_dump()
+                if isinstance(self.visualization, BaseModel)
+                else self.visualization
+            ),
             "next_agent": self.next_agent.value if self.next_agent else None,
         }
 

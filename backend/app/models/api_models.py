@@ -17,12 +17,18 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
 
-    message: str = Field(..., description="User's message")
+    message: Optional[str] = Field(None, description="User's message (optional when resuming)")
     conversation_id: Optional[str] = Field(
         default=None, description="ID of the conversation for context"
     )
     include_visualization: bool = Field(
         default=True, description="Whether to include visualization data in response"
+    )
+    checkpoint_id: Optional[str] = Field(
+        default=None, description="Checkpoint ID for resuming from pause"
+    )
+    user_input: Optional[Dict[str, Any]] = Field(
+        default=None, description="User-provided data to resume workflow"
     )
 
 

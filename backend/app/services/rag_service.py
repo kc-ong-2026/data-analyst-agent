@@ -12,7 +12,6 @@ from app.db.models import (
     EmploymentDatasetMetadata,
     HoursWorkedDatasetMetadata,
     IncomeDatasetMetadata,
-    LabourForceDatasetMetadata,
     FolderMetadataBase,
 )
 from app.db.session import get_db
@@ -30,7 +29,6 @@ class RAGService:
         ("employment", EmploymentDatasetMetadata, "employment_dataset_metadata"),
         ("hours_worked", HoursWorkedDatasetMetadata, "hours_worked_dataset_metadata"),
         ("income", IncomeDatasetMetadata, "income_dataset_metadata"),
-        ("labour_force", LabourForceDatasetMetadata, "labour_force_dataset_metadata"),
     ]
 
     def __init__(self):
@@ -53,7 +51,7 @@ class RAGService:
         Args:
             query: The search query.
             top_k: Number of results to return.
-            category_filter: Optional category to filter by (employment, hours_worked, income, labour_force).
+            category_filter: Optional category to filter by (employment, hours_worked, income).
             year_filter: Optional year range dict {"start": int, "end": int}.
 
         Returns:

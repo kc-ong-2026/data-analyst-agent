@@ -16,7 +16,6 @@ from app.db.models import (
     EmploymentDatasetMetadata,
     HoursWorkedDatasetMetadata,
     IncomeDatasetMetadata,
-    LabourForceDatasetMetadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,6 @@ class DataProcessor:
         "employment": "employment_dataset",
         "hours_worked": "hours_worked_dataset",
         "income": "income_dataset",
-        "labour_force": "labour_force_dataset",
     }
 
     def __init__(self, datasets_path: Optional[str] = None):

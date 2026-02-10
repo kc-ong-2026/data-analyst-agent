@@ -1,5 +1,6 @@
 """Main FastAPI application entry point."""
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -76,6 +77,17 @@ async def _check_and_ingest() -> None:
         logger.warning(f"Auto-ingestion check failed: {e}", exc_info=False)
 
 
+async def _cleanup_expired_checkpoints():
+    """Background task to clean up expired checkpoints every 10 minutes."""
+    from app.services.checkpoint_service import get_checkpoint_service
+
+    while True:
+        await asyncio.sleep(600)  # 10 minutes
+        checkpoint_service = get_checkpoint_service()
+        checkpoint_service.cleanup_expired()
+        logger.debug("Cleaned up expired checkpoints")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Application lifespan handler."""
@@ -89,10 +101,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Auto-ingest if database is empty
     await _check_and_ingest()
 
+    # Start checkpoint cleanup background task
+    cleanup_task = asyncio.create_task(_cleanup_expired_checkpoints())
+    logger.info("Started checkpoint cleanup background task")
+
     yield
 
     # Shutdown
     print("Shutting down Govtech Chat Assistant...")
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     await close_db()
 
 

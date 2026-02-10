@@ -134,11 +134,6 @@ class IncomeDatasetMetadata(FolderMetadataBase):
     __tablename__ = "income_dataset_metadata"
 
 
-class LabourForceDatasetMetadata(FolderMetadataBase):
-    """Metadata for labour force datasets."""
-    __tablename__ = "labour_force_dataset_metadata"
-
-
 class DataTableRegistry(Base):
     """
     Registry of all dynamically created data tables.
@@ -147,7 +142,7 @@ class DataTableRegistry(Base):
     __tablename__ = "data_table_registry"
 
     id = Column(Integer, primary_key=True)
-    category = Column(Text, nullable=False)  # employment | hours_worked | income | labour_force
+    category = Column(Text, nullable=False)  # employment | hours_worked | income
     metadata_table = Column(Text, nullable=False)  # e.g., 'employment_dataset_metadata'
     metadata_id = Column(Integer, nullable=False)
     data_table = Column(Text, nullable=False, unique=True)  # e.g., 'employment_resident_employment_rate_by_age_and_sex'
@@ -161,5 +156,4 @@ CATEGORY_MODELS = {
     "employment": EmploymentDatasetMetadata,
     "hours_worked": HoursWorkedDatasetMetadata,
     "income": IncomeDatasetMetadata,
-    "labour_force": LabourForceDatasetMetadata,
 }

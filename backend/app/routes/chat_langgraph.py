@@ -1,4 +1,4 @@
-"""Chat API routes with simple context append for natural conversation."""
+"""Chat API routes with LangGraph checkpoint support."""
 
 import logging
 import uuid
@@ -24,10 +24,14 @@ conversations: Dict[str, List[ChatMessage]] = {}
 
 @router.post("/", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Process a chat message with smart context append for clarifications.
+    """Process a chat message with LangGraph checkpoints for human-in-the-loop.
 
-    Simple approach: If last message was asking for clarification (like year),
-    combine user's response with original query for full context.
+    Uses LangGraph's native checkpoint system:
+    - If graph hits interrupt(), it pauses and waits for input
+    - User sends next message with SAME conversation_id
+    - Graph automatically resumes from interrupt point!
+
+    No manual checkpoint detection needed - LangGraph handles it all!
     """
     try:
         conversation_id = request.conversation_id or str(uuid.uuid4())
@@ -38,63 +42,42 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
         logger.info(f"Message: {request.message[:100]}...")
 
-        # CONTEXT APPEND: Check if this is a clarification response
-        combined_message = request.message
-
-        if conversation_id in conversations and len(conversations[conversation_id]) >= 2:
-            # Get last assistant message and the user message before it
-            last_assistant_msg = None
-            original_user_msg = None
-
-            for i in range(len(conversations[conversation_id]) - 1, -1, -1):
-                msg = conversations[conversation_id][i]
-                if msg.role == "assistant" and last_assistant_msg is None:
-                    last_assistant_msg = msg.content.lower()
-                elif msg.role == "user" and last_assistant_msg is not None and original_user_msg is None:
-                    original_user_msg = msg.content
-                    break
-
-            # Check if assistant was asking for clarification
-            if last_assistant_msg and original_user_msg:
-                clarification_keywords = [
-                    "which year", "specify year", "year range", "what year",
-                    "available data", "please specify", "interested in", "provide"
-                ]
-                is_asking_for_clarification = any(kw in last_assistant_msg for kw in clarification_keywords)
-
-                if is_asking_for_clarification:
-                    # Combine messages for full context!
-                    combined_message = f"{original_user_msg} {request.message}"
-                    logger.info(f"🔗 Context Append Detected!")
-                    logger.info(f"   Original query: '{original_user_msg}'")
-                    logger.info(f"   User response: '{request.message}'")
-                    logger.info(f"   Combined query: '{combined_message}'")
-
-        # Get chat history - DISABLED to make each query independent
-        # Each new query should NOT have access to previous conversation context
+        # Get chat history
         chat_history = []
-        logger.info("Each query processes independently without previous context")
+        if conversation_id in conversations:
+            chat_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in conversations[conversation_id]
+            ]
+            logger.info(f"Loaded {len(chat_history)} previous messages")
 
-        # Initialize orchestrator and execute
+        # LangGraph config with thread_id for checkpoint support
+        # Same thread_id = automatic resume if graph was interrupted
+        config = {
+            "configurable": {
+                "thread_id": conversation_id  # This is the magic!
+            }
+        }
+
+        # Initialize orchestrator
         logger.info("Initializing orchestrator and agents...")
         orchestrator = get_orchestrator()
 
+        # Execute multi-agent workflow with LangGraph checkpoints
+        # If graph hits interrupt(), it will pause and return
+        # Next call with same thread_id will automatically resume!
         logger.info("Starting multi-agent workflow execution...")
         result = await orchestrator.execute(
-            message=combined_message,  # Use combined message!
-            chat_history=chat_history,  # Always empty - independent queries
+            message=request.message,
+            chat_history=chat_history,
+            config=config,  # Pass config with thread_id
         )
         logger.info(f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}")
 
-        # Check if verification failed (topic invalid) BEFORE storing conversation
+        # Check if verification failed (topic invalid - not pausable)
         validation = result.get("query_validation", {})
         if validation and not validation.get("valid", True):
-            # Clear conversation history to prevent context pollution
-            if conversation_id in conversations:
-                logger.info(f"🗑️ Clearing conversation history for {conversation_id} due to validation failure")
-                del conversations[conversation_id]
-
-            # Return validation error without storing messages
+            # Return validation error message directly
             return ChatResponse(
                 message=validation.get("reason", "Query validation failed"),
                 conversation_id=conversation_id,
@@ -107,21 +90,21 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 }
             )
 
-        # Store conversation AFTER validation check (only if query is valid)
+        if result.get("error") and not result.get("message"):
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        # Store conversation
         if conversation_id not in conversations:
             conversations[conversation_id] = []
 
         conversations[conversation_id].append(
-            ChatMessage(role="user", content=request.message)  # Store original message
+            ChatMessage(role="user", content=request.message)
         )
         conversations[conversation_id].append(
             ChatMessage(role="assistant", content=result["message"])
         )
 
-        if result.get("error") and not result.get("message"):
-            raise HTTPException(status_code=500, detail=result["error"])
-
-        # Prepare visualization
+        # Prepare visualization data
         visualization = None
         if request.include_visualization and result.get("visualization"):
             viz = result["visualization"]
@@ -142,27 +125,42 @@ async def chat(request: ChatRequest) -> ChatResponse:
             metadata={
                 "agents_used": result.get("metadata", {}).get("agents_used", []),
                 "iterations": result.get("metadata", {}).get("iterations", 0),
-                "context_combined": combined_message != request.message,  # Show if we combined
             },
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Chat error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/agents")
 async def list_agents() -> Dict:
-    """List all available agents."""
+    """List all available agents in the system."""
     orchestrator = get_orchestrator()
     return {
         "agents": orchestrator.get_agent_info(),
         "workflow": [
-            {"step": 1, "agent": "Data Coordinator", "description": "Plans research workflows"},
-            {"step": 2, "agent": "Data Extraction", "description": "Extracts data from sources"},
-            {"step": 3, "agent": "Analytics", "description": "Analyzes and generates insights"},
+            {
+                "step": 1,
+                "agent": "Query Verification",
+                "description": "Validates query topic and year specification",
+            },
+            {
+                "step": 2,
+                "agent": "Data Coordinator",
+                "description": "Plans research workflows and delegates tasks",
+            },
+            {
+                "step": 3,
+                "agent": "Data Extraction",
+                "description": "Extracts data from government sources",
+            },
+            {
+                "step": 4,
+                "agent": "Analytics",
+                "description": "Processes data and generates insights",
+            },
         ],
     }
 
@@ -187,6 +185,7 @@ async def clear_conversation(conversation_id: str) -> Dict:
     """Clear conversation history."""
     if conversation_id in conversations:
         del conversations[conversation_id]
+
     return {"status": "cleared", "conversation_id": conversation_id}
 
 

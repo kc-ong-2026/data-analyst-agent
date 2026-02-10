@@ -6,13 +6,20 @@ from typing import Any, Dict, List
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
-from .base_agent import (
+from app.models import (
+    CoordinatorResult,
+    DelegationInfo,
+    WorkflowPlan,
+    WorkflowStep,
+)
+from ..base_agent import (
     AgentRole,
     AgentResponse,
     AgentState,
     BaseAgent,
     GraphState,
 )
+from .prompts import SYSTEM_PROMPT
 
 
 class DataCoordinatorAgent(BaseAgent):
@@ -39,19 +46,7 @@ class DataCoordinatorAgent(BaseAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are a Data Coordinator Agent for Singapore government data analysis.
-
-Your responsibilities:
-1. Analyze user queries to understand their data needs
-2. Create structured workflow plans for data extraction and analysis
-3. Determine which datasets or APIs are needed
-4. Delegate tasks to the Data Extraction and Analytics agents
-
-Available data sources:
-- Singapore Manpower datasets (employment, income, labour force, hours worked)
-- Environment API specs (weather forecasts, air quality, flood alerts)
-
-Always respond in a structured format that can be parsed."""
+        return SYSTEM_PROMPT
 
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph workflow for the coordinator.
@@ -344,23 +339,52 @@ Create a step-by-step plan. Respond in JSON format:
 
     def _build_response(self, result: GraphState, state: AgentState) -> AgentResponse:
         """Build AgentResponse from graph execution result."""
-        delegation = result.get("intermediate_results", {}).get("delegation", {})
-        full_plan = result.get("intermediate_results", {}).get("full_plan", {})
+        delegation_dict = result.get("intermediate_results", {}).get("delegation", {})
+        full_plan_dict = result.get("intermediate_results", {}).get("full_plan", {})
 
-        next_agent_str = delegation.get("next_agent", "extraction")
+        next_agent_str = delegation_dict.get("next_agent", "extraction")
         next_agent = AgentRole.EXTRACTION
         if next_agent_str == "analytics":
             next_agent = AgentRole.ANALYTICS
 
-        summary = delegation.get("summary", state.current_task)
+        summary = delegation_dict.get("summary", state.current_task)
+
+        # Create Pydantic models for type safety and validation
+        workflow_steps = []
+        for step_dict in full_plan_dict.get("steps", []):
+            workflow_steps.append(
+                WorkflowStep(
+                    step=step_dict.get("step", 1),
+                    agent=step_dict.get("agent", "extraction"),
+                    task=step_dict.get("task", ""),
+                    inputs=step_dict.get("inputs", []),
+                    expected_output=step_dict.get("expected_output", ""),
+                )
+            )
+
+        workflow_plan = WorkflowPlan(
+            query_understanding=full_plan_dict.get(
+                "query_understanding", state.current_task
+            ),
+            steps=workflow_steps,
+            final_output=full_plan_dict.get("final_output", "Analysis response"),
+            visualization_suggested=full_plan_dict.get("visualization_suggested", False),
+        )
+
+        delegation = DelegationInfo(
+            next_agent=next_agent_str,
+            summary=summary,
+        )
+
+        coordinator_result = CoordinatorResult(
+            workflow=workflow_plan,
+            delegation=delegation,
+        )
 
         return AgentResponse(
             success=True,
             message=f"Workflow planned: {summary}",
-            data={
-                "workflow": full_plan,
-                "delegation": delegation,
-            },
+            data=coordinator_result.model_dump(),  # Convert to dict for GraphState
             next_agent=next_agent,
             state=state,
         )

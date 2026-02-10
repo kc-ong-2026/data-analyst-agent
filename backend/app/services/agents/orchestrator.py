@@ -6,10 +6,12 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
+from app.models import AgentTraceEntry, OrchestrationMetadata
 from .base_agent import AgentRole, AgentResponse, AgentState, BaseAgent, GraphState
-from .coordinator_agent import DataCoordinatorAgent
-from .extraction_agent import DataExtractionAgent
-from .analytics_agent import AnalyticsAgent
+from .verification import QueryVerificationAgent
+from .coordinator import DataCoordinatorAgent
+from .extraction import DataExtractionAgent
+from .analytics import AnalyticsAgent
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,10 @@ class AgentOrchestrator:
 
         # Initialize agents
         self.agents: Dict[AgentRole, BaseAgent] = {
+            AgentRole.VERIFICATION: QueryVerificationAgent(
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+            ),
             AgentRole.COORDINATOR: DataCoordinatorAgent(
                 llm_provider=llm_provider,
                 llm_model=llm_model,
@@ -65,18 +71,29 @@ class AgentOrchestrator:
         """Build the top-level orchestration graph.
 
         Flow:
-        coordinator -> route_after_coordinator -> extraction/analytics ->
-        route_after_extraction -> analytics -> END
+        verification -> route_after_verification -> coordinator -> route_after_coordinator ->
+        extraction/analytics -> route_after_extraction -> analytics -> END
         """
         workflow = StateGraph(GraphState)
 
         # Add agent nodes
+        workflow.add_node("verification", self._run_verification)
         workflow.add_node("coordinator", self._run_coordinator)
         workflow.add_node("extraction", self._run_extraction)
         workflow.add_node("analytics", self._run_analytics)
 
-        # Set entry point
-        workflow.set_entry_point("coordinator")
+        # Set entry point - verification comes first!
+        workflow.set_entry_point("verification")
+
+        # Add conditional routing after verification
+        workflow.add_conditional_edges(
+            "verification",
+            self._route_after_verification,
+            {
+                "coordinator": "coordinator",
+                "end": END,
+            }
+        )
 
         # Add conditional routing after coordinator
         workflow.add_conditional_edges(
@@ -102,6 +119,18 @@ class AgentOrchestrator:
         workflow.add_edge("analytics", END)
 
         return workflow.compile()
+
+    def _route_after_verification(self, state: GraphState) -> str:
+        """Determine next agent after verification."""
+        validation = state.get("query_validation", {})
+        is_valid = validation.get("valid", False)
+
+        if is_valid:
+            logger.info("Routing: verification -> coordinator (query valid)")
+            return "coordinator"
+        else:
+            logger.warning(f"Routing: verification -> end (query invalid: {validation.get('reason')})")
+            return "end"
 
     def _route_after_coordinator(self, state: GraphState) -> str:
         """Determine next agent after coordinator."""
@@ -129,6 +158,43 @@ class AgentOrchestrator:
 
         logger.info("Routing: extraction -> analytics")
         return "analytics"
+
+    async def _run_verification(self, state: GraphState) -> Dict[str, Any]:
+        """Run the verification agent."""
+        logger.info("=" * 60)
+        logger.info("Running VERIFICATION AGENT")
+        logger.info("=" * 60)
+        agent = self.agents[AgentRole.VERIFICATION]
+        agent_state = AgentState.from_graph_state(state)
+
+        # Execute the agent's internal graph
+        response = await agent.execute(agent_state)
+        logger.info(f"Verification result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}...")
+
+        # Extract validation from response.data (not from state.to_graph_state!)
+        validation = response.data.get("validation", {}) if response.data else {}
+
+        # Merge response state back
+        result = {
+            "query_validation": validation,
+            "should_continue": validation.get("valid", False),
+            "intermediate_results": {
+                **state.get("intermediate_results", {}),
+                "verification_response": response.to_dict(),
+            },
+        }
+
+        if response.state:
+            new_state = response.state.to_graph_state()
+            # Also merge available_years if present
+            if new_state.get("available_years"):
+                result["available_years"] = new_state["available_years"]
+            result["metadata"] = {
+                **state.get("metadata", {}),
+                **new_state.get("metadata", {}),
+            }
+
+        return result
 
     async def _run_coordinator(self, state: GraphState) -> Dict[str, Any]:
         """Run the coordinator agent."""
@@ -170,7 +236,13 @@ class AgentOrchestrator:
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
-        logger.info(f"Extraction result: success={response.success}, data_sources={len(state.get('extracted_data', {}))}")
+
+        # Get extracted data count from response state (not old state!)
+        extracted_count = 0
+        if response.state:
+            extracted_count = len(response.state.extracted_data)
+            logger.debug(f"Response state extracted_data keys: {list(response.state.extracted_data.keys())}")
+        logger.info(f"Extraction result: success={response.success}, data_sources={extracted_count}")
 
         # Merge response state back
         if response.state:
@@ -266,6 +338,36 @@ class AgentOrchestrator:
             logger.info("WORKFLOW COMPLETED SUCCESSFULLY")
             logger.info("=" * 80 + "\n")
 
+            # Check if verification failed
+            query_validation = result.get("query_validation", {})
+            if not query_validation.get("valid", True):
+                logger.info("Verification failed, returning early")
+
+                # Create agent trace entry
+                verification_trace = AgentTraceEntry(
+                    agent="Query Verification",
+                    success=False,
+                )
+
+                # Create orchestration metadata
+                validation_metadata = OrchestrationMetadata(
+                    iterations=1,
+                    workflow_plan=[],
+                    agents_used=["Query Verification"],
+                    validation_failed=True,
+                    validation_details=query_validation,
+                )
+
+                return {
+                    "message": query_validation.get("reason", "Query validation failed"),
+                    "visualization": None,
+                    "sources": [],
+                    "error": None,
+                    "agent_trace": [verification_trace.model_dump()],
+                    "metadata": validation_metadata.model_dump(),
+                    "query_validation": query_validation,  # Include for chat route
+                }
+
             # Extract final response
             intermediate = result.get("intermediate_results", {})
             analytics_response = intermediate.get("analytics_response", {})
@@ -278,35 +380,53 @@ class AgentOrchestrator:
             if not visualization:
                 visualization = analytics_response.get("visualization")
 
-            # Build agent trace
-            agent_trace = []
+            # Build agent trace using Pydantic models
+            agent_trace_entries = []
+            if intermediate.get("verification_response"):
+                agent_trace_entries.append(
+                    AgentTraceEntry(
+                        agent="Query Verification",
+                        success=intermediate["verification_response"].get("success", True),
+                    )
+                )
             if intermediate.get("coordinator_response"):
-                agent_trace.append({
-                    "agent": "Data Coordinator",
-                    "success": intermediate["coordinator_response"].get("success", True),
-                })
+                agent_trace_entries.append(
+                    AgentTraceEntry(
+                        agent="Data Coordinator",
+                        success=intermediate["coordinator_response"].get("success", True),
+                    )
+                )
             if intermediate.get("extraction_response"):
-                agent_trace.append({
-                    "agent": "Data Extraction",
-                    "success": intermediate["extraction_response"].get("success", True),
-                })
+                agent_trace_entries.append(
+                    AgentTraceEntry(
+                        agent="Data Extraction",
+                        success=intermediate["extraction_response"].get("success", True),
+                    )
+                )
             if intermediate.get("analytics_response"):
-                agent_trace.append({
-                    "agent": "Analytics",
-                    "success": intermediate["analytics_response"].get("success", True),
-                })
+                agent_trace_entries.append(
+                    AgentTraceEntry(
+                        agent="Analytics",
+                        success=intermediate["analytics_response"].get("success", True),
+                    )
+                )
+
+            # Create orchestration metadata model
+            orchestration_metadata = OrchestrationMetadata(
+                iterations=len(agent_trace_entries),
+                workflow_plan=result.get("workflow_plan", []),
+                agents_used=[t.agent for t in agent_trace_entries],
+                validation_failed=False,
+                validation_details=None,
+            )
 
             return {
                 "message": final_message,
                 "visualization": visualization,
                 "sources": list(result.get("extracted_data", {}).keys()),
                 "error": result.get("errors", [])[-1] if result.get("errors") else None,
-                "agent_trace": agent_trace,
-                "metadata": {
-                    "iterations": len(agent_trace),
-                    "workflow_plan": result.get("workflow_plan", []),
-                    "agents_used": [t["agent"] for t in agent_trace],
-                },
+                "agent_trace": [t.model_dump() for t in agent_trace_entries],  # Convert to dicts
+                "metadata": orchestration_metadata.model_dump(),  # Convert to dict
             }
 
         except Exception as e:

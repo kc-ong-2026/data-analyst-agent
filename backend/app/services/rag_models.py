@@ -9,7 +9,7 @@ class MetadataResult:
     """A single folder metadata retrieval result."""
 
     metadata_id: int
-    category: str  # employment, hours_worked, income, labour_force
+    category: str  # employment, hours_worked, income
     file_name: str
     file_path: str
     table_name: str  # Linked data table name

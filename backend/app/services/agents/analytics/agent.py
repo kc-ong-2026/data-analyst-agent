@@ -1,18 +1,21 @@
 """Analytics Agent - Processes data and generates insights using LangGraph."""
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
-from .base_agent import (
+from app.models import AnalysisResult, VisualizationData
+from ..base_agent import (
     AgentRole,
     AgentResponse,
     AgentState,
     BaseAgent,
     GraphState,
 )
+from .prompts import SYSTEM_PROMPT
 
 
 class AnalyticsAgent(BaseAgent):
@@ -39,26 +42,7 @@ class AnalyticsAgent(BaseAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an Analytics Agent for Singapore government data analysis.
-
-Your responsibilities:
-1. Analyze extracted data to identify patterns and trends
-2. Generate statistical insights and summaries
-3. Provide clear, actionable interpretations of the data
-
-IMPORTANT: When writing your analysis:
-- Focus on insights, patterns, and conclusions in natural language
-- DO NOT include JSON code blocks or structured data formats in your analysis text
-- DO NOT include visualization specifications in your response text
-- Describe what the data shows using clear, non-technical language
-- The visualization will be handled separately by the system
-
-Your analysis should be conversational and explanatory, NOT technical or code-like.
-
-Examples:
-Good: "The data shows employment rates increased by 15% from 2020 to 2023, with the strongest growth in the technology sector."
-Bad: "```json\n{\"chart_type\": \"bar\", ...}\n```"
-"""
+        return SYSTEM_PROMPT
 
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph workflow for analytics.
@@ -116,20 +100,26 @@ Bad: "```json\n{\"chart_type\": \"bar\", ...}\n```"
             if isinstance(data, dict):
                 rows = data.get("data", [])
                 columns = data.get("columns", [])
+                metadata = data.get("metadata", {})
 
-                # Calculate basic stats
+                # Calculate basic stats from rows or metadata
                 numeric_cols = []
                 if rows:
+                    # Have actual rows - extract numeric columns
                     for col in columns:
                         sample_val = rows[0].get(col)
                         if isinstance(sample_val, (int, float)):
                             numeric_cols.append(col)
+                elif metadata:
+                    # No rows but have metadata - use metadata for column types
+                    numeric_cols = metadata.get("numeric_columns", [])
 
                 data_summary[name] = {
                     "row_count": len(rows),
                     "columns": columns,
                     "numeric_columns": numeric_cols,
                     "sample": rows[:3] if rows else [],
+                    "metadata": metadata,  # Include metadata for context
                 }
                 total_rows += len(rows)
 
@@ -151,7 +141,29 @@ Bad: "```json\n{\"chart_type\": \"bar\", ...}\n```"
         # Build analysis prompt
         data_context = self._format_data_for_analysis(extracted_data, data_summary)
 
-        analysis_prompt = f"""Analyze this data to answer the user's question.
+        # Check if we actually have data to analyze (not just metadata)
+        has_actual_data = False
+        total_rows = state.get("intermediate_results", {}).get("total_rows", 0)
+
+        # Also check for SQL query results
+        if "query_result" in extracted_data and extracted_data["query_result"].get("data"):
+            has_actual_data = True
+        elif total_rows > 0:
+            has_actual_data = True
+
+        # Use different prompts based on data availability
+        if not has_actual_data:
+            # Simpler prompt when no data available - just explain briefly
+            analysis_prompt = f"""The user asked: {current_task}
+
+{data_context}
+
+Provide a brief, single-sentence response explaining that you cannot provide the requested information because no data is currently available.
+
+IMPORTANT: Keep it SHORT and SIMPLE - just 1-2 sentences maximum. Do NOT include sections like "Key Findings", "Recommendations", or multiple paragraphs. Just state that the data is not available."""
+        else:
+            # Full analysis prompt when data is available
+            analysis_prompt = f"""Analyze this data to answer the user's question.
 
 User Question: {current_task}
 
@@ -222,16 +234,28 @@ Create a JSON visualization specification with this EXACT format:
     "description": "What this shows"
 }}
 
-IMPORTANT axis mapping for bar/line charts:
+CRITICAL axis mapping rules for bar/line charts:
 - "x_axis": The field containing CATEGORY LABELS (e.g., "year", "industry", "month")
   → These will appear as labels on the HORIZONTAL axis
 - "y_axis": The field containing NUMERIC VALUES (e.g., "count", "rate", "amount")
   → These will determine the HEIGHT of bars or points
 
+**MANDATORY RULE - X-axis must be "year" when year data exists:**
+- If the data contains a "year" field, x_axis MUST be "year"
+- Never create combined categories like "Industry (2022)" on x-axis
+- Use year on x-axis and create separate data points or series for other dimensions
+- This ensures proper time series visualization
+
 Example for employment data:
 - If data has {{"year": "2020", "employment_count": 1500}}, {{"year": "2021", "employment_count": 1700}}
 - Use "x_axis": "year" (categories on horizontal axis)
 - Use "y_axis": "employment_count" (values for bar heights)
+
+Example for industry data across years:
+- If data has {{"year": "2022", "industry": "IT", "count": 100}}, {{"year": "2023", "industry": "IT", "count": 120}}
+- Use "x_axis": "year" (NOT combined categories!)
+- Use "y_axis": "count"
+- Include industry in data but keep year as x-axis
 
 Choose the most appropriate chart type for the data and question."""
 
@@ -303,25 +327,54 @@ Choose the most appropriate chart type for the data and question."""
         extracted_data: Dict[str, Any],
         data_summary: Dict[str, Any],
     ) -> str:
-        """Format extracted data for the analysis prompt."""
+        """Format extracted data for the analysis prompt.
+
+        Priority: SQL query results > sample rows > metadata
+        """
         if not extracted_data:
             return "No data available for analysis."
 
         parts = []
+
+        # Check if we have SQL query results (highest priority)
+        if "query_result" in extracted_data and extracted_data["query_result"].get("data"):
+            query_data = extracted_data["query_result"]
+            rows = query_data.get("data", [])
+            part = f"\n### SQL Query Result\n"
+            part += f"Rows: {len(rows)}\n"
+            part += f"Columns: {', '.join(query_data.get('columns', [])[:10])}\n"
+            part += f"Data (first 10 rows from SQL query):\n"
+            part += json.dumps(rows[:10], indent=2, default=str)
+            parts.append(part)
+
+        # Process other datasets
         for name, data in extracted_data.items():
-            if not isinstance(data, dict):
+            if not isinstance(data, dict) or name == "query_result":
                 continue
 
             summary = data_summary.get(name, {})
             rows = data.get("data", [])
+            metadata = data.get("metadata", {})
 
             part = f"\n### {name}\n"
             part += f"Rows: {summary.get('row_count', len(rows))}\n"
             part += f"Columns: {', '.join(data.get('columns', [])[:10])}\n"
 
+            # Priority: rows from SQL results > metadata context
             if rows:
                 part += f"Data (first 10 rows):\n"
                 part += json.dumps(rows[:10], indent=2, default=str)
+            elif metadata:
+                # Use metadata for context when no rows available
+                part += f"\nMetadata Context:\n"
+                if metadata.get("description"):
+                    part += f"Description: {metadata['description']}\n"
+                if metadata.get("primary_dimensions"):
+                    part += f"Primary Dimensions: {', '.join(metadata['primary_dimensions'])}\n"
+                if metadata.get("numeric_columns"):
+                    part += f"Numeric Columns: {', '.join(metadata['numeric_columns'])}\n"
+                if metadata.get("year_range"):
+                    part += f"Year Range: {metadata['year_range']}\n"
 
             parts.append(part)
 
@@ -331,56 +384,79 @@ Choose the most appropriate chart type for the data and question."""
         self,
         extracted_data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Auto-generate visualization from extracted data."""
+        """Auto-generate visualization from extracted data.
+
+        Prioritizes SQL query results over sample rows.
+        """
         if not extracted_data:
             return None
 
+        # Priority 1: Check for SQL query results
+        if "query_result" in extracted_data:
+            query_data = extracted_data["query_result"]
+            rows = query_data.get("data", [])
+            if rows and len(rows) > 0:
+                columns = list(rows[0].keys()) if rows else []
+                if len(columns) >= 2:
+                    return self._generate_viz_from_rows("SQL Query Result", rows, columns)
+
+        # Priority 2: Check other datasets with rows
         for name, data in extracted_data.items():
-            if not isinstance(data, dict):
+            if not isinstance(data, dict) or name == "query_result":
                 continue
 
             rows = data.get("data", [])
-            if not rows:
-                continue
+            if rows and len(rows) > 0:
+                columns = list(rows[0].keys()) if rows else []
+                if len(columns) >= 2:
+                    return self._generate_viz_from_rows(name, rows, columns)
 
-            columns = list(rows[0].keys()) if rows else []
-            if len(columns) < 2:
-                continue
+        return None
 
-            # Find x (label/category) and y (numeric value) columns
-            # x_col: categorical field for horizontal axis labels (e.g., "year", "industry")
-            # y_col: numeric field for vertical axis values (e.g., "count", "rate")
-            x_col = columns[0]  # First column is typically the category/label
-            y_col = None
+    def _generate_viz_from_rows(
+        self,
+        dataset_name: str,
+        rows: List[Dict[str, Any]],
+        columns: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Generate visualization from rows of data."""
+        if len(columns) < 2:
+            return None
 
-            # Find first numeric column for y-axis values
-            for col in columns[1:]:
-                sample = rows[0].get(col)
-                if isinstance(sample, (int, float)):
-                    y_col = col
-                    break
+        # Find x (label/category) and y (numeric value) columns
+        # x_col: categorical field for horizontal axis labels (e.g., "year", "industry")
+        # y_col: numeric field for vertical axis values (e.g., "count", "rate")
+        x_col = columns[0]  # First column is typically the category/label
+        y_col = None
 
-            if not y_col:
-                y_col = columns[1] if len(columns) > 1 else columns[0]
+        # Find first numeric column for y-axis values
+        for col in columns[1:]:
+            sample = rows[0].get(col)
+            if isinstance(sample, (int, float)):
+                y_col = col
+                break
 
-            # Prepare visualization data
-            # Each data point must contain both x_col and y_col as keys
-            viz_data = []
-            for row in rows[:20]:
-                viz_data.append({
-                    x_col: str(row.get(x_col, ""))[:30],  # Category label (string)
-                    y_col: row.get(y_col, 0),  # Numeric value
-                })
+        if not y_col:
+            y_col = columns[1] if len(columns) > 1 else columns[0]
 
-            if viz_data:
-                return {
-                    "chart_type": "bar",
-                    "title": f"{y_col} by {x_col}",
-                    "data": viz_data,
-                    "x_axis": x_col,  # Field name for horizontal axis labels
-                    "y_axis": y_col,  # Field name for vertical axis values
-                    "description": f"Data from {name}",
-                }
+        # Prepare visualization data
+        # Each data point must contain both x_col and y_col as keys
+        viz_data = []
+        for row in rows[:20]:
+            viz_data.append({
+                x_col: str(row.get(x_col, ""))[:30],  # Category label (string)
+                y_col: row.get(y_col, 0),  # Numeric value
+            })
+
+        if viz_data:
+            return {
+                "chart_type": "bar",
+                "title": f"{y_col} by {x_col}",
+                "data": viz_data,
+                "x_axis": x_col,  # Field name for horizontal axis labels
+                "y_axis": y_col,  # Field name for vertical axis values
+                "description": f"Data from {dataset_name}",
+            }
 
         return None
 
@@ -509,20 +585,34 @@ Choose the most appropriate chart type for the data and question."""
 
     def _build_response(self, result: GraphState, state: AgentState) -> AgentResponse:
         """Build AgentResponse from graph execution result."""
-        analysis_results = result.get("analysis_results", {})
+        analysis_results_dict = result.get("analysis_results", {})
         final_response = result.get("intermediate_results", {}).get("final_response", "")
-        visualization = result.get("intermediate_results", {}).get("visualization")
+        visualization_dict = result.get("intermediate_results", {}).get("visualization")
 
-        # Update state
-        state.analysis_results = analysis_results
+        # Create Pydantic models for type safety
+        visualization_model = None
+        if visualization_dict:
+            try:
+                visualization_model = VisualizationData(**visualization_dict)
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"Failed to create VisualizationData model: {e}"
+                )
+
+        analysis_result = AnalysisResult(
+            text=final_response or analysis_results_dict.get("text", "Analysis complete."),
+            visualization=visualization_model,
+            data_sources=analysis_results_dict.get("data_sources", []),
+        )
+
+        # Update state (keep original dict for backward compatibility)
+        state.analysis_results = analysis_results_dict
 
         return AgentResponse(
             success=True,
-            message=final_response or analysis_results.get("text", "Analysis complete."),
-            data={
-                "analysis": analysis_results,
-            },
-            visualization=visualization,
+            message=analysis_result.text,
+            data={"analysis": analysis_result.model_dump()},
+            visualization=visualization_model.model_dump() if visualization_model else None,
             next_agent=None,  # Analytics is the final agent
             state=state,
         )
