@@ -12,7 +12,10 @@ export interface VisualizationData {
   data: Record<string, unknown>[];
   x_axis?: string;
   y_axis?: string;
+  x_label?: string;
+  y_label?: string;
   description?: string;
+  html_chart?: string;
 }
 
 export interface ChatRequest {

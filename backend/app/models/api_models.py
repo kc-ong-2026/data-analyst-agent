@@ -39,11 +39,16 @@ class VisualizationData(BaseModel):
         ..., description="Type of chart (bar, line, pie, scatter, table)"
     )
     title: str = Field(..., description="Title of the visualization")
-    data: List[Dict[str, Any]] = Field(..., description="Data points for the chart")
-    x_axis: Optional[str] = Field(default=None, description="X-axis label/field")
-    y_axis: Optional[str] = Field(default=None, description="Y-axis label/field")
+    data: List[Dict[str, Any]] = Field(default=[], description="Data points for the chart")
+    x_axis: Optional[str] = Field(default=None, description="X-axis data field name")
+    y_axis: Optional[str] = Field(default=None, description="Y-axis data field name")
+    x_label: Optional[str] = Field(default=None, description="Human-readable X-axis label")
+    y_label: Optional[str] = Field(default=None, description="Human-readable Y-axis label")
     description: Optional[str] = Field(
         default=None, description="Description of the visualization"
+    )
+    html_chart: Optional[str] = Field(
+        default=None, description="HTML representation of the chart (Plotly)"
     )
 
 

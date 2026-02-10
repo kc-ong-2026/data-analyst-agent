@@ -31,9 +31,7 @@ class GraphState(TypedDict):
     metadata: Dict[str, Any]
     intermediate_results: Dict[str, Any]
     should_continue: bool
-    retrieval_context: Dict[str, Any]  # Now includes table_schemas for SQL generation
-    sql_queries: List[Dict[str, Any]]  # Generated SQL queries [{sql, params, table_name}]
-    sql_results: Dict[str, List[Dict[str, Any]]]  # Execution results {table_name: [rows]}
+    retrieval_context: Dict[str, Any]  # Includes table_schemas and metadata for data loading
     query_validation: Dict[str, Any]  # Validation result and context
     available_years: Dict[str, Dict[str, int]]  # Year ranges by category
 
@@ -78,8 +76,6 @@ class AgentState:
             "intermediate_results": {},
             "should_continue": True,
             "retrieval_context": {},
-            "sql_queries": [],
-            "sql_results": {},
             "query_validation": {},
             "available_years": {},
         }
@@ -152,15 +148,21 @@ class BaseAgent(ABC):
         self,
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ):
         """Initialize the base agent.
 
         Args:
             llm_provider: The LLM provider to use (openai, anthropic, google)
             llm_model: The specific model to use
+            temperature: Temperature parameter for LLM generation
+            max_tokens: Maximum tokens for LLM generation
         """
         self.llm_provider = llm_provider
         self.llm_model = llm_model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         self._llm = None
         self._graph = None
 
@@ -194,7 +196,9 @@ class BaseAgent(ABC):
             from app.services.llm_service import get_llm_service
             llm_service = get_llm_service(
                 provider=self.llm_provider,
-                model=self.llm_model
+                model=self.llm_model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
             )
             self._llm = llm_service.llm
         return self._llm

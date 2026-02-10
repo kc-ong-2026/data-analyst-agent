@@ -2,9 +2,8 @@
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
@@ -57,14 +56,13 @@ class DataExtractionAgent(BaseAgent):
         """Build the LangGraph workflow for data extraction.
 
         Flow:
-        retrieve_context -> generate_sql_queries -> load_raw_data -> extract_relevant_data -> format_output -> END
+        retrieve_context -> load_dataframes -> extract_relevant_data -> format_output -> END
         """
         workflow = StateGraph(GraphState)
 
         # Add nodes
         workflow.add_node("retrieve_context", self._retrieve_context_node)
-        workflow.add_node("generate_sql_queries", self._generate_sql_queries_node)
-        workflow.add_node("load_raw_data", self._load_raw_data_node)
+        workflow.add_node("load_dataframes", self._load_dataframes_node)
         workflow.add_node("extract_relevant_data", self._extract_relevant_data_node)
         workflow.add_node("format_output", self._format_output_node)
 
@@ -72,10 +70,9 @@ class DataExtractionAgent(BaseAgent):
         workflow.set_entry_point("retrieve_context")
 
         # Add edges with conditional routing
-        workflow.add_edge("retrieve_context", "generate_sql_queries")
-        workflow.add_edge("generate_sql_queries", "load_raw_data")
+        workflow.add_edge("retrieve_context", "load_dataframes")
         workflow.add_conditional_edges(
-            "load_raw_data",
+            "load_dataframes",
             self._should_extract,
             {
                 "extract": "extract_relevant_data",
@@ -118,10 +115,21 @@ class DataExtractionAgent(BaseAgent):
             if async_session_factory is not None:
                 from app.services.rag_service import RAGService
                 rag_service = RAGService()
+
+                # Extract category filter from query for targeted search
+                logger.info(f"[CATEGORY DETECTION] Query: '{search_query}'")
+                category_filter = self._extract_category_from_query(search_query)
+                logger.info(f"[CATEGORY DETECTION] Detected category: {category_filter}")
+                if category_filter:
+                    logger.info(f"✓ Will search only {category_filter}_dataset_metadata")
+                else:
+                    logger.info(f"✗ No category detected - searching all tables")
+
                 logger.info(f"Calling RAG with query: {search_query}")
                 retrieval_result = await rag_service.retrieve(
                     query=search_query,
                     top_k=10,
+                    category_filter=category_filter,
                 )
 
                 logger.info(
@@ -136,15 +144,17 @@ class DataExtractionAgent(BaseAgent):
                         f"with {len(retrieval_result.table_schemas)} table schemas"
                     )
 
-                    # Store retrieval context with table schemas for SQL generation
+                    # Store retrieval context with table schemas for data loading
                     retrieval_context = {
                         "metadata_results": [
                             {
                                 "metadata_id": m.metadata_id,
                                 "category": m.category,
                                 "file_name": m.file_name,
+                                "file_path": m.file_path,  # Include file path for DataFrame loading
                                 "table_name": m.table_name,
                                 "description": m.description,
+                                "summary_text": m.summary_text,  # Rich context about dataset content
                                 "columns": m.columns,
                                 "row_count": m.row_count,
                                 "score": m.score,
@@ -156,6 +166,7 @@ class DataExtractionAgent(BaseAgent):
                                 "table_name": s.table_name,
                                 "category": s.category,
                                 "description": s.description,
+                                "summary_text": s.summary_text,  # Rich context about dataset content
                                 "columns": s.columns,
                                 "primary_dimensions": s.primary_dimensions,
                                 "numeric_columns": s.numeric_columns,
@@ -163,6 +174,8 @@ class DataExtractionAgent(BaseAgent):
                                 "row_count": s.row_count,
                                 "year_range": s.year_range,
                                 "sql_schema_prompt": s.sql_schema_prompt,
+                                "file_path": s.file_path,  # Include file path for DataFrame loading
+                                "score": s.score,  # Include relevance score
                             }
                             for s in retrieval_result.table_schemas
                         ],
@@ -236,442 +249,178 @@ Respond with a JSON list of the most relevant dataset paths:
             },
         }
 
-    async def _generate_sql_queries_node(self, state: GraphState) -> Dict[str, Any]:
-        """Node: Generate SQL queries for data retrieval.
-
-        Default behavior: Always generate SQL queries to retrieve data from tables.
-        This ensures all data queries get proper filtering/aggregation.
-        """
-        current_task = state.get("current_task", "")
+    async def _load_dataframes_node(self, state: GraphState) -> Dict[str, Any]:
+        """Node: Load raw DataFrames from files based on RAG retrieval with confidence scoring."""
         retrieval_context = state.get("retrieval_context", {})
-
-        # Get table schemas from retrieval context
-        table_schemas = retrieval_context.get("table_schemas", [])
-        if not table_schemas:
-            logger.info("No table schemas available for SQL generation")
-            return {"sql_queries": [], "sql_results": {}}
-
-        # Generate SQL query using LLM (single table only)
-        try:
-            sql_queries = await self._generate_sql_with_llm(current_task, table_schemas)
-            if sql_queries:
-                logger.info(f"Generated SQL query for single table analysis")
-                logger.info(f"📝 Generated SQL: {sql_queries[0].get('sql', '')}")
-                logger.info(f"   Description: {sql_queries[0].get('description', '')}")
-
-            # Validate SQL query for safety
-            validated_queries = self._validate_sql_queries(sql_queries, table_schemas)
-            if not validated_queries:
-                logger.warning("No valid SQL query after validation")
-                return {"sql_queries": [], "sql_results": {}}
-
-            # Log the validated query
-            table_name = validated_queries[0].get("table_name", "unknown")
-            validated_sql = validated_queries[0].get("sql", "")
-            logger.info(f"✅ Validated SQL query for table: {table_name}")
-            logger.info(f"   SQL: {validated_sql}")
-
-            # Execute SQL query
-            sql_results = await self._execute_sql_queries(validated_queries)
-            total_rows = sum(len(rows) for rows in sql_results.values())
-            logger.info(f"Executed SQL query, got {total_rows} rows from {table_name}")
-
-            return {
-                "sql_queries": validated_queries,
-                "sql_results": sql_results,
-            }
-        except Exception as e:
-            logger.error(f"SQL generation/execution failed: {e}", exc_info=True)
-            return {
-                "sql_queries": [],
-                "sql_results": {},
-                "errors": state.get("errors", []) + [f"SQL generation failed: {str(e)}"],
-            }
-
-    def _requires_sql_aggregation(self, query: str) -> bool:
-        """Detect if query requires SQL aggregation or filtering.
-
-        Args:
-            query: User query
-
-        Returns:
-            True if query requires SQL (aggregation, filtering, or grouping)
-        """
-        query_lower = query.lower()
-
-        # Aggregation keywords
-        aggregation_keywords = [
-            "average", "avg", "mean",
-            "total", "sum",
-            "count", "number of",
-            "trend", "over time", "by year", "by month",
-            "group by", "grouped by",
-            "maximum", "max", "highest",
-            "minimum", "min", "lowest",
-            "median",
-            "compare", "comparison",
-            "distribution",
-            "percentage", "percent",
-            "rate",  # employment rate, unemployment rate, etc.
-        ]
-
-        # Grouping/dimension keywords (indicates need for GROUP BY)
-        grouping_keywords = [
-            "by industry", "by sector", "by age", "by sex",
-            "by qualification", "by education", "by gender",
-            "by occupation", "by region", "by area",
-        ]
-
-        # Year range patterns (indicates need for WHERE filtering)
-        year_range_patterns = [
-            r'\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until|and)\s*(19\d{2}|20[0-4]\d)\b',  # 2020-2025, 2020 to 2025
-            r'\bbetween\s+(19\d{2}|20[0-4]\d)\s+(?:and|to)\s+(19\d{2}|20[0-4]\d)\b',  # between 2020 and 2025
-            r'\bfrom\s+(19\d{2}|20[0-4]\d)\s+(?:to|until)\s+(19\d{2}|20[0-4]\d)\b',  # from 2020 to 2025
-        ]
-
-        # Action verbs indicating data retrieval (usually needs SQL)
-        action_keywords = [
-            "show", "display", "get", "find", "retrieve",
-            "list", "what is", "what are", "how many",
-        ]
-
-        # Check aggregation keywords
-        if any(keyword in query_lower for keyword in aggregation_keywords):
-            return True
-
-        # Check grouping keywords
-        if any(keyword in query_lower for keyword in grouping_keywords):
-            return True
-
-        # Check for year ranges (indicates filtering needed)
-        import re
-        for pattern in year_range_patterns:
-            if re.search(pattern, query_lower):
-                return True
-
-        # Check action verbs (most queries with these need SQL)
-        if any(keyword in query_lower for keyword in action_keywords):
-            return True
-
-        # Default: if query contains numbers (years, values), likely needs SQL
-        if re.search(r'\b(19\d{2}|20[0-4]\d)\b', query_lower):
-            return True
-
-        return False
-
-    async def _generate_sql_with_llm(
-        self, query: str, table_schemas: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Generate SQL queries using LLM with table schemas.
-
-        Args:
-            query: User query
-            table_schemas: List of table schema dictionaries
-
-        Returns:
-            List of SQL query dictionaries with {sql, table_name, description}
-        """
-        # Build schema descriptions for LLM (single table analysis)
-        schema_prompts = []
-        for schema in table_schemas[:3]:  # Limit to top 3 most relevant tables
-            schema_prompt = schema.get("sql_schema_prompt", "")
-            if schema_prompt:
-                schema_prompts.append(schema_prompt)
-
-        schemas_text = "\n\n".join(schema_prompts)
-
-        sql_prompt = f"""Generate a SINGLE SQL query to answer the user's question using ONE table from the provided schemas.
-
-User Question: {query}
-
-Available Tables:
-{schemas_text}
-
-Requirements:
-1. Identify the MOST RELEVANT single table that best answers the question
-2. Generate ONE SQL query that queries ONLY that table
-3. **CRITICAL**: Use SELECT * to retrieve ALL columns from filtered rows
-4. Use proper PostgreSQL syntax
-5. Include appropriate WHERE clauses for filtering
-6. Add ORDER BY for trends/sorting (use columns that exist in the table)
-7. Include LIMIT to prevent large result sets (default 500 rows)
-8. **CRITICAL**: ONLY use column names in WHERE/ORDER BY that are EXPLICITLY LISTED in the "Columns:" section
-9. Do NOT use JOINs - query only ONE table
-10. Do NOT use GROUP BY or aggregations - return raw filtered rows with all columns
-
-CRITICAL - Column Validation:
-- Before using ANY column in your SQL query, VERIFY it exists in the "Columns:" list above
-- If a column doesn't exist (e.g., "sex" column when only "industry" exists), DO NOT use it
-- It's better to return broader results than to fail with "column does not exist" error
-
-CRITICAL - Handling Dimensions (age, sex, industry, qualification, etc.):
-- **ALWAYS use SELECT * to get all columns** - do NOT select specific columns
-- If the question does NOT specify a dimension value (e.g., "employment rate" without mentioning age/sex/industry):
-  * Return ALL rows without filtering by that dimension
-  * Example: If table has "age", "sex", "employment_count" and question doesn't specify age:
-    → SELECT * FROM table WHERE year BETWEEN 2020 AND 2023 ORDER BY year LIMIT 500
-- If the question DOES specify a dimension value (e.g., "employment rate for ages 25-54" OR "technology sector"):
-  * **CRITICAL**: Filter to the SINGLE MOST RELEVANT value for that dimension
-  * Use WHERE clause to filter: WHERE industry LIKE '%technology%' OR industry LIKE '%IT%'
-  * **For industry/sector questions**: Pick the ONE most representative industry value (e.g., "IT and other information services" for "technology sector")
-  * Do NOT return multiple industries - filter to just ONE that best matches the user's intent
-  * Use pattern matching (LIKE '%keyword%') to find the most relevant industry
-- **ALWAYS use ORDER BY year** when time series data is requested
-- Check categorical column values to match user's intent (e.g., "Total" rows often exist)
-- Common dimension columns: age, sex, industry, qualification, employment_status
-- Do NOT use GROUP BY or aggregation functions - return raw filtered rows
-
-Examples:
-1. "Employment rate from 2019-2021" (no age/sex/industry specified):
-   → SELECT * FROM table WHERE year BETWEEN 2019 AND 2021 ORDER BY year LIMIT 500
-
-2. "Technology sector employment from 2022-2023" (specific industry + years):
-   → SELECT * FROM table
-      WHERE (industry2 LIKE '%IT%' OR industry2 LIKE '%information%')
-        AND year BETWEEN 2022 AND 2023
-      ORDER BY year LIMIT 10
-   → Pick ONLY the most relevant single industry (e.g., "IT and other information services")
-
-3. "Female employment rate in 2020":
-   → SELECT * FROM table
-      WHERE (sex = 'Female' OR sex LIKE '%Female%') AND year = 2020
-      ORDER BY year LIMIT 500
-
-4. "Finance sector from 2022-2023":
-   → SELECT * FROM table
-      WHERE (industry2 LIKE '%finance%' OR industry2 LIKE '%financial%')
-        AND year BETWEEN 2022 AND 2023
-      ORDER BY year LIMIT 10
-
-Respond in JSON format:
-{{
-    "query": {{
-        "sql": "SELECT * FROM table_name WHERE ... ORDER BY ... LIMIT ...",
-        "description": "what this query does",
-        "table_name": "the_single_table_name"
-    }}
-}}
-
-IMPORTANT:
-- Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, or other modification commands.
-- Query ONLY ONE table - the most relevant one for answering the question.
-- Return ONE query object, not an array of queries.
-- Use SELECT * to retrieve all columns from filtered rows.
-- Focus filtering in WHERE clause, not on column selection."""
-
-        response = await self._invoke_llm([HumanMessage(content=sql_prompt)])
-        parsed = self._parse_json_response(response)
-
-        # Handle single query format (new simplified approach)
-        query_obj = parsed.get("query", {})
-        if query_obj and query_obj.get("sql"):
-            # Ensure table_name is set
-            if not query_obj.get("table_name"):
-                query_obj["table_name"] = "unknown"
-            return [query_obj]  # Return as list for compatibility
-
-        # Fallback to old format if needed
-        queries = parsed.get("queries", [])
-        return queries if queries else []
-
-    def _validate_sql_queries(
-        self, queries: List[Dict[str, Any]], table_schemas: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Validate SQL queries for safety and column existence.
-
-        Args:
-            queries: List of SQL query dictionaries
-            table_schemas: Available table schemas
-
-        Returns:
-            List of validated SQL queries
-        """
-        validated = []
-        valid_tables = {schema.get("table_name") for schema in table_schemas}
-
-        # Dangerous SQL keywords
-        dangerous_keywords = [
-            "DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE", "ALTER",
-            "CREATE", "GRANT", "REVOKE", "EXEC", "EXECUTE", "--", ";--"
-        ]
-
-        for query_dict in queries:
-            sql = query_dict.get("sql", "")
-            table_name = query_dict.get("table_name", "")
-
-            if not sql or not table_name:
-                logger.warning("Skipping query with missing sql or table_name")
-                continue
-
-            # Check for dangerous keywords
-            sql_upper = sql.upper()
-            if any(keyword in sql_upper for keyword in dangerous_keywords):
-                logger.warning(f"Skipping query with dangerous keyword: {sql[:100]}")
-                continue
-
-
-            # Check table name is in valid list
-            if table_name not in valid_tables:
-                logger.warning(f"Skipping query for unknown table: {table_name}")
-                continue
-
-            # Ensure LIMIT is present
-            if "LIMIT" not in sql_upper:
-                sql += " LIMIT 500"
-                query_dict["sql"] = sql
-
-            validated.append(query_dict)
-
-        return validated
-
-    async def _execute_sql_queries(
-        self, queries: List[Dict[str, Any]]
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """Execute validated SQL query (single table only).
-
-        Args:
-            queries: List with single SQL query dictionary
-
-        Returns:
-            Dictionary with single key "query_result" containing all result rows
-        """
-        from app.db.session import get_db
-
-        if not queries:
-            return {}
-
-        # Execute the single table query
-        async with get_db() as session:
-            query_dict = queries[0]  # Only one query for single table
-            sql = query_dict.get("sql", "")
-            table_name = query_dict.get("table_name", "")
-            description = query_dict.get("description", "Query result")
-
-            try:
-                # Execute query with text() for parameterized execution
-                logger.info(f"🔍 Executing SQL on table '{table_name}':")
-                logger.info(f"   {sql}")
-                result = await session.execute(text(sql))
-                rows = result.fetchall()
-                columns = result.keys()
-
-                # Convert to list of dicts
-                result_data = [
-                    {col: val for col, val in zip(columns, row)}
-                    for row in rows
-                ]
-
-                logger.info(
-                    f"✅ SQL query returned {len(result_data)} rows from table: {table_name}"
-                )
-
-                # Return single result with table name for context
-                return {"query_result": result_data}
-
-            except Exception as e:
-                logger.error(f"Failed to execute SQL query on {table_name}: {e}", exc_info=True)
-                return {}
-
-    async def _load_raw_data_node(self, state: GraphState) -> Dict[str, Any]:
-        """Node: Load data from RAG results or fall back to file loading.
-
-        Merges SQL query results if available.
-        """
         intermediate = state.get("intermediate_results", {})
         source = intermediate.get("source", "file")
 
-        # Load data based on source
-        if source == "rag":
-            result = await self._load_from_rag(state)
-        else:
-            result = await self._load_from_files(state)
-
-        # Merge SQL results if available (single table query result)
-        sql_results = state.get("sql_results", {})
-        sql_queries = state.get("sql_queries", [])
-        if sql_results and "query_result" in sql_results and sql_queries:
-            loaded_datasets = result.get("intermediate_results", {}).get("loaded_datasets", {})
-            rows = sql_results["query_result"]
-
-            # Get the table name from the SQL query
-            table_name = sql_queries[0].get("table_name", "") if sql_queries else ""
-
-            if rows and table_name:
-                # Merge SQL results into the corresponding table entry
-                if table_name in loaded_datasets:
-                    loaded_datasets[table_name]["data"] = rows
-                    loaded_datasets[table_name]["shape"] = [len(rows), len(loaded_datasets[table_name].get("columns", []))]
-                    loaded_datasets[table_name]["source"] = "sql"
-                    logger.info(f"Merged SQL query result ({len(rows)} rows) into {table_name}")
-                else:
-                    # Table not in loaded_datasets, create new entry with SQL results
-                    columns = list(rows[0].keys()) if rows else []
-                    loaded_datasets[table_name] = {
-                        "path": "SQL query result",
-                        "columns": columns,
-                        "shape": [len(rows), len(columns)],
-                        "dtypes": {},
-                        "data": rows,
-                        "source": "sql",
-                    }
-                    logger.info(f"Created new entry {table_name} with SQL query result ({len(rows)} rows)")
-
-                result["intermediate_results"]["loaded_datasets"] = loaded_datasets
-
-        return result
-
-    async def _load_from_rag(self, state: GraphState) -> Dict[str, Any]:
-        """Load datasets metadata from RAG retrieval results.
-
-        Single-table analysis: Only load metadata from the most relevant table.
-        Sample rows are NOT loaded - SQL query results will provide the actual data.
-        """
-        retrieval_context = state.get("intermediate_results", {}).get("retrieval_context", {})
-        metadata_results = retrieval_context.get("metadata_results", [])
-        table_schemas = retrieval_context.get("table_schemas", [])
-
         loaded_datasets = {}
 
-        # Load metadata only (no sample rows) from the MOST RELEVANT table
-        for metadata_info in metadata_results[:1]:  # Only load from top 1 most relevant table
-            table_name = metadata_info.get("table_name", "")
-            if not table_name:
-                continue
+        if source == "rag":
+            # Load from RAG results with INTELLIGENT SELECTION
+            table_schemas = retrieval_context.get("table_schemas", [])
 
-            try:
-                # Get column info
-                columns = [c["name"] for c in metadata_info.get("columns", [])]
+            if not table_schemas:
+                logger.warning("No table schemas available for DataFrame loading")
+                return {"intermediate_results": {**intermediate, "loaded_datasets": {}}}
 
-                # Find corresponding table schema for richer metadata
-                table_schema = None
-                for schema in table_schemas:
-                    if schema.get("table_name") == table_name:
-                        table_schema = schema
+            # Get configuration for confidence-based selection
+            from app.config import config
+            rag_config = config.get_rag_config()
+            confidence_threshold = rag_config.get("confidence_threshold", 0.5)
+            min_datasets = rag_config.get("min_datasets", 1)
+            max_datasets = rag_config.get("max_datasets", 3)
+
+            # Extract scores from table_schemas (scores come from reranker)
+            schemas_with_scores = []
+            for schema in table_schemas:
+                score = schema.get("score", 0.0)
+                schemas_with_scores.append((schema, score))
+
+            # Sort by score descending
+            schemas_with_scores.sort(key=lambda x: x[1], reverse=True)
+
+            # Select datasets based on confidence
+            selected_schemas = []
+            for schema, score in schemas_with_scores:
+                # Always include top result
+                if len(selected_schemas) == 0:
+                    selected_schemas.append((schema, score))
+                    logger.info(f"✅ Loading top result: {schema.get('table_name')} (score={score:.3f})")
+                # Include others only if score is high enough
+                elif score >= confidence_threshold and len(selected_schemas) < max_datasets:
+                    selected_schemas.append((schema, score))
+                    logger.info(f"✅ Loading confident result: {schema.get('table_name')} (score={score:.3f})")
+                elif len(selected_schemas) < min_datasets:
+                    # Guarantee min_datasets even if below threshold
+                    selected_schemas.append((schema, score))
+                    logger.info(f"⚠️  Loading fallback result: {schema.get('table_name')} (score={score:.3f} below threshold)")
+                else:
+                    logger.info(f"❌ Skipping low-confidence result: {schema.get('table_name')} (score={score:.3f})")
+
+            logger.info(
+                f"Selected {len(selected_schemas)} datasets out of {len(table_schemas)} candidates. "
+                f"Threshold: {confidence_threshold}, Scores: {[f'{s:.3f}' for _, s in selected_schemas]}"
+            )
+
+            # Load selected DataFrames with fallback mechanism
+            failed_loads = []
+            for schema, score in selected_schemas:
+                table_name = schema.get("table_name")
+                file_path = schema.get("file_path")
+
+                if not file_path:
+                    logger.warning(f"No file_path for table {table_name}, skipping DataFrame load")
+                    failed_loads.append((table_name, "No file_path"))
+                    continue
+
+                try:
+                    # Use DataService to load raw DataFrame
+                    df = data_service.load_dataset(file_path)
+
+                    # Serialize DataFrame for GraphState
+                    loaded_datasets[table_name] = {
+                        "columns": df.columns.tolist(),
+                        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+                        "data": df.to_dict(orient="records"),  # List of dicts
+                        "shape": list(df.shape),
+                        "metadata": {
+                            "table_name": table_name,
+                            "category": schema.get("category", ""),
+                            "description": schema.get("description", ""),
+                            "summary_text": schema.get("summary_text", ""),  # Rich context about dataset
+                            "primary_dimensions": schema.get("primary_dimensions", []),
+                            "numeric_columns": schema.get("numeric_columns", []),
+                            "categorical_columns": schema.get("categorical_columns", []),
+                            "year_range": schema.get("year_range", {}),
+                            "confidence_score": score,  # Store score
+                        },
+                        "table_name": table_name,
+                        "source": "rag_metadata",  # Changed from 'dataframe' to 'rag_metadata'
+                        "file_path": file_path,
+                    }
+
+                    logger.info(f"Loaded DataFrame {table_name}: {df.shape} from {file_path}")
+                except FileNotFoundError as e:
+                    logger.warning(f"⚠️ Dataset file not found: {file_path} (skipping - database may need re-ingestion)")
+                    failed_loads.append((table_name, str(e)))
+                except Exception as e:
+                    logger.error(f"Failed to load DataFrame from {file_path}: {e}", exc_info=True)
+                    failed_loads.append((table_name, str(e)))
+
+            # If selected datasets failed but we have more candidates, try loading fallbacks
+            if len(loaded_datasets) < min_datasets and failed_loads and len(selected_schemas) < len(table_schemas):
+                logger.info(f"Only loaded {len(loaded_datasets)}/{min_datasets} required datasets. Trying fallback datasets...")
+                remaining_schemas = [
+                    (schema, schema.get("score", 0.0))
+                    for schema in table_schemas[len(selected_schemas):max_datasets]
+                ]
+
+                for schema, score in remaining_schemas:
+                    if len(loaded_datasets) >= min_datasets:
                         break
 
-                # Store metadata information without sample rows
-                loaded_datasets[table_name] = {
-                    "path": metadata_info.get("file_name", ""),
-                    "columns": columns,
-                    "shape": [metadata_info.get("row_count", 0), len(columns)],
-                    "dtypes": {c["name"]: c.get("dtype", "object") for c in metadata_info.get("columns", [])},
-                    "data": [],  # Empty - will use SQL results
-                    "metadata": {
-                        "table_name": table_name,
-                        "category": metadata_info.get("category", ""),
-                        "description": metadata_info.get("description", "") if not table_schema else table_schema.get("description", ""),
-                        "primary_dimensions": table_schema.get("primary_dimensions", []) if table_schema else [],
-                        "numeric_columns": table_schema.get("numeric_columns", []) if table_schema else [],
-                        "categorical_columns": table_schema.get("categorical_columns", []) if table_schema else [],
-                        "year_range": table_schema.get("year_range", {}) if table_schema else {},
-                    },
-                    "table_name": table_name,
-                    "source": "rag_metadata",
-                }
+                    table_name = schema.get("table_name")
+                    file_path = schema.get("file_path")
 
-                logger.info(f"Loaded metadata for {table_name} (no sample rows - will use SQL results)")
-            except Exception as e:
-                logger.warning(f"Failed to load metadata from {table_name}: {e}")
+                    if not file_path:
+                        continue
+
+                    try:
+                        logger.info(f"⚠️ Attempting fallback dataset: {table_name} (score={score:.3f})")
+                        df = data_service.load_dataset(file_path)
+
+                        loaded_datasets[table_name] = {
+                            "columns": df.columns.tolist(),
+                            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+                            "data": df.to_dict(orient="records"),
+                            "shape": list(df.shape),
+                            "metadata": {
+                                "table_name": table_name,
+                                "category": schema.get("category", ""),
+                                "description": schema.get("description", ""),
+                                "summary_text": schema.get("summary_text", ""),  # Rich context about dataset
+                                "primary_dimensions": schema.get("primary_dimensions", []),
+                                "numeric_columns": schema.get("numeric_columns", []),
+                                "categorical_columns": schema.get("categorical_columns", []),
+                                "year_range": schema.get("year_range", {}),
+                                "confidence_score": score,
+                            },
+                            "table_name": table_name,
+                            "source": "rag_metadata",
+                            "file_path": file_path,
+                        }
+                        logger.info(f"✅ Loaded fallback DataFrame {table_name}: {df.shape}")
+                    except Exception as e:
+                        logger.warning(f"Fallback dataset {table_name} also failed: {e}")
+
+        else:
+            # Load from file-based matching
+            matched_datasets = intermediate.get("matched_datasets", [])
+
+            for ds in matched_datasets[:3]:  # Load top 3
+                try:
+                    # Load DataFrame directly
+                    df = data_service.load_dataset(ds["path"])
+
+                    # Serialize DataFrame
+                    loaded_datasets[ds["name"]] = {
+                        "columns": df.columns.tolist(),
+                        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+                        "data": df.to_dict(orient="records"),
+                        "shape": list(df.shape),
+                        "metadata": {
+                            "category": ds.get("category", ""),
+                            "description": ds.get("description", ""),
+                        },
+                        "source": "file_metadata",  # Changed from 'dataframe' to 'file_metadata'
+                        "file_path": ds["path"],
+                    }
+
+                    logger.info(f"Loaded DataFrame {ds['name']}: {df.shape} from {ds['path']}")
+                except Exception as e:
+                    logger.error(f"Failed to load DataFrame from {ds['path']}: {e}", exc_info=True)
 
         return {
             "intermediate_results": {
@@ -680,43 +429,6 @@ IMPORTANT:
             },
         }
 
-    async def _load_from_files(self, state: GraphState) -> Dict[str, Any]:
-        """Load dataset metadata from file system (original flow).
-
-        Sample rows are NOT loaded - SQL query results will provide the actual data.
-        """
-        matched_datasets = state.get("intermediate_results", {}).get("matched_datasets", [])
-
-        loaded_datasets = {}
-        load_errors = []
-
-        for ds in matched_datasets:
-            try:
-                info = data_service.get_dataset_info(ds["path"])
-                # Do NOT load sample data - only metadata
-                loaded_datasets[ds["name"]] = {
-                    "path": ds["path"],
-                    "columns": info.get("columns", []),
-                    "shape": info.get("shape", [0, 0]),
-                    "dtypes": info.get("dtypes", {}),
-                    "data": [],  # Empty - will use SQL results
-                    "metadata": {
-                        "description": info.get("description", ""),
-                        "category": ds.get("category", ""),
-                    },
-                    "source": "file_metadata",
-                }
-                logger.info(f"Loaded metadata for {ds['name']} (no sample rows - will use SQL results)")
-            except Exception as e:
-                load_errors.append(f"Failed to load {ds['name']}: {str(e)}")
-
-        return {
-            "intermediate_results": {
-                **state.get("intermediate_results", {}),
-                "loaded_datasets": loaded_datasets,
-                "load_errors": load_errors,
-            },
-        }
 
     async def _extract_relevant_data_node(self, state: GraphState) -> Dict[str, Any]:
         """Node: Extract relevant data based on query context."""
@@ -889,6 +601,34 @@ Respond in JSON format:
             ],
         }
 
+    def _extract_category_from_query(self, query: str) -> Optional[str]:
+        """Extract category filter from query based on keywords.
+
+        Args:
+            query: User query string
+
+        Returns:
+            Category name ("employment", "income", "hours_worked") or None for no filter
+        """
+        query_lower = query.lower()
+
+        # Check for category keywords (order matters - more specific first)
+        if any(keyword in query_lower for keyword in [
+            "employment", "employed", "unemployment", "job", "labour force", "labor force"
+        ]):
+            return "employment"
+        elif any(keyword in query_lower for keyword in [
+            "income", "salary", "wage", "earning", "pay", "compensation"
+        ]):
+            return "income"
+        elif any(keyword in query_lower for keyword in [
+            "hours worked", "working hours", "work hours", "overtime"
+        ]):
+            return "hours_worked"
+
+        # No specific category detected - search all categories
+        return None
+
     def _extract_keywords(
         self,
         task: str,
@@ -959,13 +699,19 @@ Respond in JSON format:
                     if min_year is not None and max_year is not None:
                         year_range = YearRange(min=min_year, max=max_year)
 
+                # Extract categorical column names from dict structure if needed
+                # Database stores [{column, values, cardinality}] but model expects [str]
+                categorical_cols = metadata_dict.get("categorical_columns", [])
+                if categorical_cols and isinstance(categorical_cols[0], dict):
+                    categorical_cols = [col["column"] for col in categorical_cols]
+
                 metadata = DatasetMetadata(
                     table_name=metadata_dict.get("table_name", dataset_name),
                     category=metadata_dict.get("category", ""),
                     description=metadata_dict.get("description", ""),
                     primary_dimensions=metadata_dict.get("primary_dimensions", []),
                     numeric_columns=metadata_dict.get("numeric_columns", []),
-                    categorical_columns=metadata_dict.get("categorical_columns", []),
+                    categorical_columns=categorical_cols,
                     year_range=year_range,
                 )
 

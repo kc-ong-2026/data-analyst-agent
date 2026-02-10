@@ -114,7 +114,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 data=viz.get("data", []),
                 x_axis=viz.get("x_axis"),
                 y_axis=viz.get("y_axis"),
+                x_label=viz.get("x_label"),
+                y_label=viz.get("y_label"),
                 description=viz.get("description"),
+                html_chart=viz.get("html_chart"),  # Include HTML chart!
             )
 
         return ChatResponse(

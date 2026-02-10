@@ -28,6 +28,11 @@ interface ChartProps {
 }
 
 const BarChartComponent: React.FC<ChartProps> = ({ data }) => {
+  // Safety check: return null if data is empty
+  if (!data.data || data.data.length === 0) {
+    return <p className="text-gray-500">No data available</p>;
+  }
+
   // Calculate width based on number of data points (min 50px per bar)
   const chartWidth = Math.max(700, data.data.length * 50);
   const chartHeight = 450;
@@ -49,7 +54,7 @@ const BarChartComponent: React.FC<ChartProps> = ({ data }) => {
           interval={0}
           tick={{ fontSize: 12 }}
           label={{
-            value: data.x_axis || 'Category',
+            value: data.x_label || data.x_axis || 'Category',
             position: 'insideBottom',
             offset: -5,
             style: { fontSize: 14, fontWeight: 600 }
@@ -58,7 +63,7 @@ const BarChartComponent: React.FC<ChartProps> = ({ data }) => {
         <YAxis
           tick={{ fontSize: 12 }}
           label={{
-            value: data.y_axis || 'Value',
+            value: data.y_label || data.y_axis || 'Value',
             angle: -90,
             position: 'insideLeft',
             style: { fontSize: 14, fontWeight: 600, textAnchor: 'middle' }
@@ -72,6 +77,11 @@ const BarChartComponent: React.FC<ChartProps> = ({ data }) => {
 };
 
 const LineChartComponent: React.FC<ChartProps> = ({ data }) => {
+  // Safety check: return null if data is empty
+  if (!data.data || data.data.length === 0) {
+    return <p className="text-gray-500">No data available</p>;
+  }
+
   // Calculate width based on number of data points (min 40px per point)
   const chartWidth = Math.max(700, data.data.length * 40);
   const chartHeight = 450;
@@ -93,7 +103,7 @@ const LineChartComponent: React.FC<ChartProps> = ({ data }) => {
           interval={0}
           tick={{ fontSize: 12 }}
           label={{
-            value: data.x_axis || 'Category',
+            value: data.x_label || data.x_axis || 'Category',
             position: 'insideBottom',
             offset: -5,
             style: { fontSize: 14, fontWeight: 600 }
@@ -102,7 +112,7 @@ const LineChartComponent: React.FC<ChartProps> = ({ data }) => {
         <YAxis
           tick={{ fontSize: 12 }}
           label={{
-            value: data.y_axis || 'Value',
+            value: data.y_label || data.y_axis || 'Value',
             angle: -90,
             position: 'insideLeft',
             style: { fontSize: 14, fontWeight: 600, textAnchor: 'middle' }
@@ -122,6 +132,11 @@ const LineChartComponent: React.FC<ChartProps> = ({ data }) => {
 };
 
 const PieChartComponent: React.FC<ChartProps> = ({ data }) => {
+  // Safety check: return null if data is empty
+  if (!data.data || data.data.length === 0) {
+    return <p className="text-gray-500">No data available</p>;
+  }
+
   const chartWidth = 700;
   const chartHeight = 450;
 
@@ -148,6 +163,11 @@ const PieChartComponent: React.FC<ChartProps> = ({ data }) => {
 };
 
 const ScatterChartComponent: React.FC<ChartProps> = ({ data }) => {
+  // Safety check: return null if data is empty
+  if (!data.data || data.data.length === 0) {
+    return <p className="text-gray-500">No data available</p>;
+  }
+
   const chartWidth = 900;
   const chartHeight = 450;
 
@@ -224,12 +244,72 @@ const TableComponent: React.FC<ChartProps> = ({ data }) => {
   );
 };
 
+// Component to render Plotly HTML with script execution using iframe
+const PlotlyHTMLRenderer: React.FC<{ html: string }> = ({ html }) => {
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
+
+  React.useEffect(() => {
+    if (!iframeRef.current || !html) return;
+
+    const iframe = iframeRef.current;
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+
+    if (iframeDoc) {
+      iframeDoc.open();
+      iframeDoc.write(html);
+      iframeDoc.close();
+
+      // Auto-resize iframe to fit content
+      const resizeIframe = () => {
+        if (iframeDoc.body) {
+          const height = Math.max(
+            iframeDoc.body.scrollHeight,
+            iframeDoc.documentElement?.scrollHeight || 0,
+            500 // minimum height
+          );
+          iframe.style.height = height + 'px';
+        }
+      };
+
+      // Resize multiple times to ensure Plotly has finished rendering
+      setTimeout(resizeIframe, 100);
+      setTimeout(resizeIframe, 500);
+      setTimeout(resizeIframe, 1000);
+      setTimeout(resizeIframe, 2000);
+    }
+  }, [html]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      className="w-full border-0"
+      style={{ minHeight: '500px', height: '500px' }}
+      title="Plotly Visualization"
+    />
+  );
+};
+
 export const VisualizationPanel: React.FC = () => {
   const { currentVisualization, setVisualization } = useChatStore();
 
   const renderChart = () => {
     if (!currentVisualization) return null;
 
+    // Priority 1: Render HTML chart if available (Plotly interactive chart)
+    if (currentVisualization.html_chart) {
+      return <PlotlyHTMLRenderer html={currentVisualization.html_chart} />;
+    }
+
+    // Priority 2: Fallback to Recharts (only if data array has content)
+    if (!currentVisualization.data || currentVisualization.data.length === 0) {
+      return (
+        <div className="text-gray-500 text-center py-8">
+          <p>Unable to generate visualization</p>
+        </div>
+      );
+    }
+
+    // Recharts fallback for backward compatibility
     switch (currentVisualization.chart_type) {
       case 'bar':
         return <BarChartComponent data={currentVisualization} />;
@@ -287,14 +367,14 @@ export const VisualizationPanel: React.FC = () => {
               <span className="text-xs text-gray-500">
                 Chart type: {currentVisualization.chart_type}
               </span>
-              {currentVisualization.x_axis && (
+              {(currentVisualization.x_label || currentVisualization.x_axis) && (
                 <span className="text-xs text-gray-500">
-                  | X: {currentVisualization.x_axis}
+                  | X: {currentVisualization.x_label || currentVisualization.x_axis}
                 </span>
               )}
-              {currentVisualization.y_axis && (
+              {(currentVisualization.y_label || currentVisualization.y_axis) && (
                 <span className="text-xs text-gray-500">
-                  | Y: {currentVisualization.y_axis}
+                  | Y: {currentVisualization.y_label || currentVisualization.y_axis}
                 </span>
               )}
             </div>

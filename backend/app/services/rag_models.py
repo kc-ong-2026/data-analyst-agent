@@ -26,7 +26,7 @@ class MetadataResult:
 
 @dataclass
 class TableSchema:
-    """Full schema information for SQL generation."""
+    """Full schema information for data loading and analysis."""
 
     table_name: str
     category: str
@@ -38,6 +38,9 @@ class TableSchema:
     row_count: int
     year_range: Optional[Dict[str, Any]]
     sql_schema_prompt: str  # Formatted schema for LLM
+    summary_text: str = ""  # Rich context about dataset content
+    file_path: Optional[str] = None  # Path to the source file for DataFrame loading
+    score: float = 0.0  # Relevance score from retrieval/reranking
 
 
 @dataclass

@@ -44,6 +44,29 @@ class AgentOrchestrator:
         self.llm_model = llm_model
         self.max_iterations = max_iterations
 
+        # Load analytics-specific model from config
+        from app.config import config as app_config
+
+        # Get default provider if not specified
+        yaml_llm_config = app_config.yaml_config.get("llm", {})
+        default_provider = yaml_llm_config.get("default_provider", "anthropic")
+        effective_provider = llm_provider or default_provider
+
+        analytics_model = None
+        analytics_temperature = None
+        analytics_max_tokens = None
+        analytics_provider = effective_provider
+
+        # Use analytics-specific model if provider is Anthropic
+        if effective_provider == "anthropic":
+            anthropic_config = yaml_llm_config.get("providers", {}).get("anthropic", {})
+            analytics_model = anthropic_config.get("analytics_model", "claude-opus-4-6")
+            analytics_temperature = anthropic_config.get("analytics_temperature", 0.0)
+            analytics_max_tokens = anthropic_config.get("analytics_max_tokens", 8192)
+            logger.info(f"🔬 Analytics Agent using: {analytics_model} (temp={analytics_temperature}, max_tokens={analytics_max_tokens}, Chain of Thought enabled)")
+        else:
+            logger.info(f"Analytics Agent using default model for provider: {effective_provider}")
+
         # Initialize agents
         self.agents: Dict[AgentRole, BaseAgent] = {
             AgentRole.VERIFICATION: QueryVerificationAgent(
@@ -59,8 +82,10 @@ class AgentOrchestrator:
                 llm_model=llm_model,
             ),
             AgentRole.ANALYTICS: AnalyticsAgent(
-                llm_provider=llm_provider,
-                llm_model=llm_model,
+                llm_provider=analytics_provider,
+                llm_model=analytics_model or llm_model,  # Use Opus 4.6 for analytics
+                temperature=analytics_temperature,
+                max_tokens=analytics_max_tokens,
             ),
         }
 

@@ -29,9 +29,15 @@ pandas==2.2.0
 openpyxl==3.1.2
 python-dotenv==1.0.1
 httpx==0.26.0
+matplotlib==3.8.2
+plotly==5.18.0
 
 # Async support
 aiofiles==23.2.1
 
 # CORS
 python-jose==3.3.0
+
+# Reranking and BM25
+sentence-transformers==2.7.0
+rank-bm25==0.2.2

@@ -19,12 +19,16 @@ class LLMService:
         self,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ):
         if provider is None:
             llm_config = config.get_llm_config()
             provider = llm_config["provider"]
         self.provider = provider
         self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         self._llm: Optional[BaseChatModel] = None
 
     def _get_llm(self) -> BaseChatModel:
@@ -34,8 +38,9 @@ class LLMService:
 
         llm_config = config.get_llm_config(self.provider)
         model_name = self.model or llm_config["model"]
-        temperature = llm_config["temperature"]
-        max_tokens = llm_config["max_tokens"]
+        # Use provided parameters or fall back to config
+        temperature = self.temperature if self.temperature is not None else llm_config["temperature"]
+        max_tokens = self.max_tokens if self.max_tokens is not None else llm_config["max_tokens"]
 
         logger.info(f"Initializing LLM: provider={self.provider}, model={model_name}, temperature={temperature}, max_tokens={max_tokens}")
 
@@ -51,6 +56,7 @@ class LLMService:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 api_key=provider_api_key,
+                model_kwargs={"stream_options": {"include_usage": True}},  # Enable token usage tracking
             )
 
         elif self.provider == "anthropic":
@@ -65,6 +71,7 @@ class LLMService:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 anthropic_api_key=provider_api_key,
+                # Anthropic automatically includes usage metadata, no special parameter needed
             )
 
         elif self.provider == "google":
@@ -79,6 +86,7 @@ class LLMService:
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 google_api_key=provider_api_key,
+                # Google automatically includes usage metadata
             )
 
         else:
@@ -190,9 +198,11 @@ class EmbeddingService:
 def get_llm_service(
     provider: Optional[str] = None,
     model: Optional[str] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
 ) -> LLMService:
     """Factory function to get LLM service."""
-    return LLMService(provider=provider, model=model)
+    return LLMService(provider=provider, model=model, temperature=temperature, max_tokens=max_tokens)
 
 
 def get_embedding_service(

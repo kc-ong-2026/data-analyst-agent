@@ -124,15 +124,29 @@ class AppConfig:
         }
 
     def get_rag_config(self) -> Dict[str, Any]:
-        """Get RAG configuration."""
+        """Get RAG configuration with reranking and BM25 settings."""
         rag_config = self.yaml_config.get("rag", {})
         return {
+            # Existing retrieval config
             "embedding_batch_size": rag_config.get("embedding_batch_size", 100),
             "vector_search_top_k": rag_config.get("vector_search_top_k", 20),
             "fulltext_search_top_k": rag_config.get("fulltext_search_top_k", 20),
             "hybrid_top_k": rag_config.get("hybrid_top_k", 10),
             "rrf_k": rag_config.get("rrf_k", 60),
             "similarity_threshold": rag_config.get("similarity_threshold", 0.8),
+
+            # Reranking config
+            "use_reranking": rag_config.get("use_reranking", True),
+            "reranker_model": rag_config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+            "reranker_batch_size": rag_config.get("reranker_batch_size", 32),
+
+            # BM25 config
+            "use_bm25": rag_config.get("use_bm25", True),
+
+            # Dataset selection config
+            "confidence_threshold": rag_config.get("confidence_threshold", 0.5),
+            "min_datasets": rag_config.get("min_datasets", 1),
+            "max_datasets": rag_config.get("max_datasets", 3),
         }
 
     def get_api_key(self, provider: str) -> Optional[str]:
