@@ -1,5 +1,6 @@
 """Model-agnostic LLM service supporting multiple providers."""
 
+import logging
 from typing import Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -7,6 +8,8 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.config import config
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -17,7 +20,10 @@ class LLMService:
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ):
-        self.provider = provider or config.settings.default_llm_provider
+        if provider is None:
+            llm_config = config.get_llm_config()
+            provider = llm_config["provider"]
+        self.provider = provider
         self.model = model
         self._llm: Optional[BaseChatModel] = None
 
@@ -31,46 +37,48 @@ class LLMService:
         temperature = llm_config["temperature"]
         max_tokens = llm_config["max_tokens"]
 
+        logger.info(f"Initializing LLM: provider={self.provider}, model={model_name}, temperature={temperature}, max_tokens={max_tokens}")
+
         if self.provider == "openai":
             from langchain_openai import ChatOpenAI
 
-            api_key = config.get_api_key("openai")
-            if not api_key:
+            provider_api_key = config.get_api_key("openai")
+            if not provider_api_key:
                 raise ValueError("OpenAI API key not configured")
 
             self._llm = ChatOpenAI(
                 model=model_name,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                api_key=api_key,
+                api_key=provider_api_key,
             )
 
         elif self.provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
 
-            api_key = config.get_api_key("anthropic")
-            if not api_key:
+            provider_api_key = config.get_api_key("anthropic")
+            if not provider_api_key:
                 raise ValueError("Anthropic API key not configured")
 
             self._llm = ChatAnthropic(
                 model=model_name,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                api_key=api_key,
+                anthropic_api_key=provider_api_key,
             )
 
         elif self.provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            api_key = config.get_api_key("google")
-            if not api_key:
+            provider_api_key = config.get_api_key("google")
+            if not provider_api_key:
                 raise ValueError("Google API key not configured")
 
             self._llm = ChatGoogleGenerativeAI(
                 model=model_name,
                 temperature=temperature,
                 max_output_tokens=max_tokens,
-                google_api_key=api_key,
+                google_api_key=provider_api_key,
             )
 
         else:
@@ -104,7 +112,9 @@ class LLMService:
 
         messages.append(HumanMessage(content=prompt))
 
+        logger.info(f"Calling LLM: {self.provider}/{self.model or 'default'}, prompt_length={len(prompt)}, num_messages={len(messages)}")
         response = await self.llm.ainvoke(messages)
+        logger.info(f"LLM response received: length={len(response.content) if response.content else 0}")
         return response.content
 
 
@@ -116,7 +126,10 @@ class EmbeddingService:
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ):
-        self.provider = provider or config.settings.default_embedding_provider
+        if provider is None:
+            embed_config = config.get_embedding_config()
+            provider = embed_config["provider"]
+        self.provider = provider
         self.model = model
         self._embeddings: Optional[Embeddings] = None
 
@@ -168,7 +181,10 @@ class EmbeddingService:
 
     async def embed_query(self, query: str) -> List[float]:
         """Embed a single query."""
-        return await self.embeddings.aembed_query(query)
+        logger.info(f"Embedding query: {self.provider}/{self.model or 'default'}, query_length={len(query)}")
+        result = await self.embeddings.aembed_query(query)
+        logger.info(f"Embedding generated: dimensions={len(result)}")
+        return result
 
 
 def get_llm_service(

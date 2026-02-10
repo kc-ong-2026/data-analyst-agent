@@ -1,5 +1,6 @@
 """Chat API routes with multi-agent system."""
 
+import logging
 import uuid
 from typing import Dict, List
 
@@ -12,6 +13,8 @@ from app.models import (
     VisualizationData,
 )
 from app.services.agents.orchestrator import get_orchestrator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -32,6 +35,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # Get or create conversation
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
+        logger.info(f"Processing chat request: conversation_id={conversation_id}")
+        logger.info(f"Message: {request.message[:100]}...")
+
         # Get chat history
         chat_history = []
         if conversation_id in conversations:
@@ -39,18 +45,19 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 {"role": msg.role, "content": msg.content}
                 for msg in conversations[conversation_id]
             ]
+            logger.info(f"Loaded {len(chat_history)} previous messages")
 
-        # Initialize agents through orchestrator
-        orchestrator = get_orchestrator(
-            llm_provider=request.llm_provider,
-            llm_model=request.llm_model,
-        )
+        # Initialize agents through orchestrator with default config
+        logger.info("Initializing orchestrator and agents...")
+        orchestrator = get_orchestrator()
 
         # Execute multi-agent workflow
+        logger.info("Starting multi-agent workflow execution...")
         result = await orchestrator.execute(
             message=request.message,
             chat_history=chat_history,
         )
+        logger.info(f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}")
 
         if result.get("error") and not result.get("message"):
             raise HTTPException(status_code=500, detail=result["error"])

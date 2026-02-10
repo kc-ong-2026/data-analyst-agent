@@ -17,18 +17,6 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
 
-    # Default model configuration
-    default_llm_provider: str = Field(default="openai", alias="DEFAULT_LLM_PROVIDER")
-    default_llm_model: str = Field(
-        default="gpt-4-turbo-preview", alias="DEFAULT_LLM_MODEL"
-    )
-    default_embedding_provider: str = Field(
-        default="openai", alias="DEFAULT_EMBEDDING_PROVIDER"
-    )
-    default_embedding_model: str = Field(
-        default="text-embedding-3-small", alias="DEFAULT_EMBEDDING_MODEL"
-    )
-
     # Database configuration
     database_url: Optional[str] = Field(default=None, alias="DATABASE_URL")
 
@@ -66,11 +54,23 @@ class AppConfig:
 
     def get_llm_config(self, provider: Optional[str] = None) -> Dict[str, Any]:
         """Get LLM configuration for a specific provider."""
-        provider = provider or self.settings.default_llm_provider
-        llm_config = self.yaml_config.get("llm", {}).get("providers", {}).get(provider, {})
+        # Get default provider from YAML, fallback to openai
+        yaml_llm = self.yaml_config.get("llm", {})
+        default_provider = yaml_llm.get("default_provider", "openai")
+        provider = provider or default_provider
+
+        llm_config = yaml_llm.get("providers", {}).get(provider, {})
+
+        # Hardcoded fallback models per provider
+        default_models = {
+            "openai": "gpt-4-turbo-preview",
+            "anthropic": "claude-sonnet-4-5-20250929",
+            "google": "gemini-pro"
+        }
+
         return {
             "provider": provider,
-            "model": llm_config.get("default_model", self.settings.default_llm_model),
+            "model": llm_config.get("default_model", default_models.get(provider, "gpt-4-turbo-preview")),
             "temperature": llm_config.get("temperature", 0.7),
             "max_tokens": llm_config.get("max_tokens", 4096),
             "available_models": llm_config.get("models", []),
@@ -78,15 +78,22 @@ class AppConfig:
 
     def get_embedding_config(self, provider: Optional[str] = None) -> Dict[str, Any]:
         """Get embedding configuration for a specific provider."""
-        provider = provider or self.settings.default_embedding_provider
-        embed_config = (
-            self.yaml_config.get("embeddings", {}).get("providers", {}).get(provider, {})
-        )
+        # Get default provider from YAML, fallback to openai
+        yaml_embeddings = self.yaml_config.get("embeddings", {})
+        default_provider = yaml_embeddings.get("default_provider", "openai")
+        provider = provider or default_provider
+
+        embed_config = yaml_embeddings.get("providers", {}).get(provider, {})
+
+        # Hardcoded fallback models per provider
+        default_models = {
+            "openai": "text-embedding-3-small",
+            "google": "models/embedding-001"
+        }
+
         return {
             "provider": provider,
-            "model": embed_config.get(
-                "default_model", self.settings.default_embedding_model
-            ),
+            "model": embed_config.get("default_model", default_models.get(provider, "text-embedding-3-small")),
             "dimensions": embed_config.get("dimensions", 1536),
             "available_models": embed_config.get("models", []),
         }

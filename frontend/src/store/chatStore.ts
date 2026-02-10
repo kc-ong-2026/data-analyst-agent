@@ -8,15 +8,11 @@ interface ChatState {
   isLoading: boolean;
   error: string | null;
   currentVisualization: VisualizationData | null;
-  selectedProvider: string;
-  selectedModel: string;
 
   // Actions
   sendMessage: (content: string) => Promise<void>;
   clearMessages: () => void;
   setVisualization: (viz: VisualizationData | null) => void;
-  setProvider: (provider: string) => void;
-  setModel: (model: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -25,11 +21,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   error: null,
   currentVisualization: null,
-  selectedProvider: 'openai',
-  selectedModel: 'gpt-4-turbo-preview',
 
   sendMessage: async (content: string) => {
-    const { conversationId, selectedProvider, selectedModel } = get();
+    const { conversationId } = get();
 
     // Add user message
     const userMessage: Message = {
@@ -49,8 +43,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const response = await chatApi.sendMessage({
         message: content,
         conversation_id: conversationId || undefined,
-        llm_provider: selectedProvider,
-        llm_model: selectedModel,
         include_visualization: true,
       });
 
@@ -92,13 +84,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setVisualization: (viz) => {
     set({ currentVisualization: viz });
-  },
-
-  setProvider: (provider) => {
-    set({ selectedProvider: provider });
-  },
-
-  setModel: (model) => {
-    set({ selectedModel: model });
   },
 }));

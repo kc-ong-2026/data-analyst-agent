@@ -21,12 +21,6 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(
         default=None, description="ID of the conversation for context"
     )
-    llm_provider: Optional[str] = Field(
-        default=None, description="LLM provider to use (openai, anthropic, google)"
-    )
-    llm_model: Optional[str] = Field(
-        default=None, description="Specific model to use"
-    )
     include_visualization: bool = Field(
         default=True, description="Whether to include visualization data in response"
     )
@@ -70,25 +64,6 @@ class ConversationHistory(BaseModel):
     messages: List[ChatMessage]
     created_at: datetime
     updated_at: datetime
-
-
-class ModelConfig(BaseModel):
-    """Model configuration response."""
-
-    provider: str
-    model: str
-    available_models: List[str]
-    temperature: float
-    max_tokens: int
-
-
-class ConfigResponse(BaseModel):
-    """Configuration response model."""
-
-    llm_providers: List[str]
-    embedding_providers: List[str]
-    current_llm: ModelConfig
-    current_embedding: Dict[str, Any]
 
 
 class HealthResponse(BaseModel):

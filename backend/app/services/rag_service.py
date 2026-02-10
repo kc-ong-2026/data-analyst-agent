@@ -76,6 +76,7 @@ class RAGService:
                 ]
 
             for category, model_class, table_name in folders_to_search:
+                logger.info(f"Searching folder table: {category} ({table_name})")
                 results = await self._search_folder_table(
                     session,
                     model_class,
@@ -85,6 +86,7 @@ class RAGService:
                     query_embedding,
                     year_filter,
                 )
+                logger.info(f"  -> Found {len(results)} results in {category}")
                 all_metadata_results.extend(results)
 
             # Sort by score and take top_k
@@ -152,7 +154,7 @@ class RAGService:
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
         where_clauses = ["m.embedding IS NOT NULL"]
-        params: Dict[str, Any] = {"embedding": embedding_str, "limit": self.vector_top_k}
+        params: Dict[str, Any] = {"limit": self.vector_top_k}
 
         if year_filter:
             if year_filter.get("start"):
@@ -168,7 +170,7 @@ class RAGService:
             SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
                    m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
                    m.row_count, m.year_range, m.summary_text,
-                   m.embedding <=> :embedding::vector AS distance
+                   m.embedding <=> '{embedding_str}'::vector AS distance
             FROM {table_name} m
             WHERE {where_sql}
             ORDER BY distance

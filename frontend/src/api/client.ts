@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ChatRequest, ChatResponse, ConfigResponse, ProvidersResponse } from '../types';
+import type { ChatRequest, ChatResponse } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -33,16 +33,6 @@ export const chatApi = {
 };
 
 export const configApi = {
-  getConfig: async (): Promise<ConfigResponse> => {
-    const response = await apiClient.get<ConfigResponse>('/config/');
-    return response.data;
-  },
-
-  getProviders: async (): Promise<ProvidersResponse> => {
-    const response = await apiClient.get<ProvidersResponse>('/config/providers');
-    return response.data;
-  },
-
   healthCheck: async () => {
     const response = await apiClient.get('/config/health');
     return response.data;

@@ -44,27 +44,21 @@ class AnalyticsAgent(BaseAgent):
 Your responsibilities:
 1. Analyze extracted data to identify patterns and trends
 2. Generate statistical insights and summaries
-3. Create visualization specifications for the frontend
-4. Provide clear, actionable interpretations of the data
+3. Provide clear, actionable interpretations of the data
 
-When creating visualizations, use this JSON format:
-{
-    "chart_type": "bar|line|pie|scatter|table",
-    "title": "Descriptive title",
-    "data": [{"x_field": "label", "y_field": value}, ...],
-    "x_axis": "x_field",
-    "y_axis": "y_field",
-    "description": "What the chart shows"
-}
+IMPORTANT: When writing your analysis:
+- Focus on insights, patterns, and conclusions in natural language
+- DO NOT include JSON code blocks or structured data formats in your analysis text
+- DO NOT include visualization specifications in your response text
+- Describe what the data shows using clear, non-technical language
+- The visualization will be handled separately by the system
 
-Chart guidelines:
-- bar: Compare categories or discrete values
-- line: Show trends over time
-- pie: Show proportions of a whole
-- scatter: Show relationships between variables
-- table: Display detailed data
+Your analysis should be conversational and explanatory, NOT technical or code-like.
 
-Always explain findings in clear, non-technical language."""
+Examples:
+Good: "The data shows employment rates increased by 15% from 2020 to 2023, with the strongest growth in the technology sector."
+Bad: "```json\n{\"chart_type\": \"bar\", ...}\n```"
+"""
 
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph workflow for analytics.
@@ -164,13 +158,15 @@ User Question: {current_task}
 Available Data:
 {data_context}
 
-Provide:
+Provide your analysis in clear, natural language. Include:
 1. Direct answer to the question
 2. Key insights from the data
 3. Any notable patterns or trends
 4. Limitations or caveats
 
-Be specific and cite actual values from the data when possible."""
+Be specific and cite actual values from the data when possible.
+
+IMPORTANT: Write your response as natural text only. Do NOT include JSON, code blocks, or structured data formats in your response. The visualization will be handled separately."""
 
         try:
             response = await self._invoke_llm([HumanMessage(content=analysis_prompt)])
@@ -216,15 +212,26 @@ Question: {current_task}
 Dataset: {sample_dataset}
 Sample Data: {json.dumps(sample_data[:5], default=str, indent=2)}
 
-Create a JSON visualization specification:
+Create a JSON visualization specification with this EXACT format:
 {{
     "chart_type": "bar|line|pie|scatter|table",
     "title": "Chart title",
     "data": [...prepared data...],
-    "x_axis": "field name for x",
-    "y_axis": "field name for y",
+    "x_axis": "field_name_for_horizontal_axis_labels",
+    "y_axis": "field_name_for_vertical_axis_values",
     "description": "What this shows"
 }}
+
+IMPORTANT axis mapping for bar/line charts:
+- "x_axis": The field containing CATEGORY LABELS (e.g., "year", "industry", "month")
+  → These will appear as labels on the HORIZONTAL axis
+- "y_axis": The field containing NUMERIC VALUES (e.g., "count", "rate", "amount")
+  → These will determine the HEIGHT of bars or points
+
+Example for employment data:
+- If data has {{"year": "2020", "employment_count": 1500}}, {{"year": "2021", "employment_count": 1700}}
+- Use "x_axis": "year" (categories on horizontal axis)
+- Use "y_axis": "employment_count" (values for bar heights)
 
 Choose the most appropriate chart type for the data and question."""
 
@@ -263,8 +270,11 @@ Choose the most appropriate chart type for the data and question."""
             else:
                 analysis = "I couldn't find specific data for your query. Please try rephrasing your question."
 
+        # Strip JSON code blocks to ensure visualization field is single source of truth
+        cleaned_analysis = self._strip_json_code_blocks(analysis)
+
         # Clean up the analysis text
-        final_response = analysis.strip()
+        final_response = cleaned_analysis.strip()
 
         # Add data source attribution
         sources = list(extracted_data.keys())
@@ -337,10 +347,13 @@ Choose the most appropriate chart type for the data and question."""
             if len(columns) < 2:
                 continue
 
-            # Find x (label) and y (value) columns
-            x_col = columns[0]
+            # Find x (label/category) and y (numeric value) columns
+            # x_col: categorical field for horizontal axis labels (e.g., "year", "industry")
+            # y_col: numeric field for vertical axis values (e.g., "count", "rate")
+            x_col = columns[0]  # First column is typically the category/label
             y_col = None
 
+            # Find first numeric column for y-axis values
             for col in columns[1:]:
                 sample = rows[0].get(col)
                 if isinstance(sample, (int, float)):
@@ -351,11 +364,12 @@ Choose the most appropriate chart type for the data and question."""
                 y_col = columns[1] if len(columns) > 1 else columns[0]
 
             # Prepare visualization data
+            # Each data point must contain both x_col and y_col as keys
             viz_data = []
             for row in rows[:20]:
                 viz_data.append({
-                    x_col: str(row.get(x_col, ""))[:30],
-                    y_col: row.get(y_col, 0),
+                    x_col: str(row.get(x_col, ""))[:30],  # Category label (string)
+                    y_col: row.get(y_col, 0),  # Numeric value
                 })
 
             if viz_data:
@@ -363,8 +377,8 @@ Choose the most appropriate chart type for the data and question."""
                     "chart_type": "bar",
                     "title": f"{y_col} by {x_col}",
                     "data": viz_data,
-                    "x_axis": x_col,
-                    "y_axis": y_col,
+                    "x_axis": x_col,  # Field name for horizontal axis labels
+                    "y_axis": y_col,  # Field name for vertical axis values
                     "description": f"Data from {name}",
                 }
 
@@ -392,12 +406,106 @@ Choose the most appropriate chart type for the data and question."""
             # Validate required fields
             if "chart_type" in viz and "data" in viz:
                 if isinstance(viz["data"], list) and len(viz["data"]) > 0:
-                    return viz
+                    # Validate axis fields exist in data for bar/line charts
+                    validated_viz = self._validate_visualization(viz)
+                    return validated_viz
 
         except (ValueError, json.JSONDecodeError):
             pass
 
         return None
+
+    def _validate_visualization(self, viz: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and potentially fix visualization specification."""
+        chart_type = viz.get("chart_type", "bar")
+        data = viz.get("data", [])
+
+        if not data:
+            return viz
+
+        # For bar/line/scatter charts, ensure x_axis and y_axis fields exist in data
+        if chart_type in ["bar", "line", "scatter"]:
+            sample_keys = set(data[0].keys())
+            x_axis = viz.get("x_axis")
+            y_axis = viz.get("y_axis")
+
+            # If x_axis or y_axis not specified, try to infer from data
+            if not x_axis or not y_axis:
+                keys_list = list(sample_keys)
+                if len(keys_list) >= 2:
+                    # Find first non-numeric column for x_axis (labels)
+                    x_axis = None
+                    for key in keys_list:
+                        if not isinstance(data[0][key], (int, float)):
+                            x_axis = key
+                            break
+                    if not x_axis:
+                        x_axis = keys_list[0]
+
+                    # Find first numeric column for y_axis (values)
+                    y_axis = None
+                    for key in keys_list:
+                        if isinstance(data[0][key], (int, float)):
+                            y_axis = key
+                            break
+                    if not y_axis:
+                        y_axis = keys_list[1] if len(keys_list) > 1 else keys_list[0]
+
+                    viz["x_axis"] = x_axis
+                    viz["y_axis"] = y_axis
+
+            # Validate that specified fields exist in data
+            if x_axis and x_axis not in sample_keys:
+                # Try to find best match
+                for key in sample_keys:
+                    if not isinstance(data[0][key], (int, float)):
+                        viz["x_axis"] = key
+                        break
+
+            if y_axis and y_axis not in sample_keys:
+                # Try to find best match (numeric field)
+                for key in sample_keys:
+                    if isinstance(data[0][key], (int, float)):
+                        viz["y_axis"] = key
+                        break
+
+            # CRITICAL FIX: Convert x-axis values to strings for proper Recharts rendering
+            # Numeric x values (like years) can cause Recharts to misinterpret the axis
+            if x_axis and chart_type in ["bar", "line"]:
+                viz["data"] = [
+                    {
+                        **row,
+                        x_axis: str(row.get(x_axis, ""))[:50]  # Convert to string, limit length
+                    }
+                    for row in data
+                ]
+
+        return viz
+
+    def _strip_json_code_blocks(self, text: str) -> str:
+        """Remove JSON code blocks from analysis text to prevent frontend confusion.
+
+        This ensures the visualization field is the single source of truth.
+        """
+        import re
+
+        # Pattern to match JSON code blocks (```json...``` or ```...``` with JSON content)
+        patterns = [
+            r'```json\s*\{[^`]*\}\s*```',  # Explicit JSON blocks
+            r'```\s*\{[^`]*\}\s*```',       # Generic code blocks with JSON objects
+        ]
+
+        cleaned_text = text
+        for pattern in patterns:
+            # Replace JSON blocks with a placeholder message
+            cleaned_text = re.sub(
+                pattern,
+                '[Visualization generated - see visualization panel]',
+                cleaned_text,
+                flags=re.DOTALL
+            )
+
+        return cleaned_text.strip()
 
     def _build_response(self, result: GraphState, state: AgentState) -> AgentResponse:
         """Build AgentResponse from graph execution result."""

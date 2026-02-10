@@ -12,8 +12,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
-  ResponsiveContainer,
   Cell,
 } from 'recharts';
 import { BarChart2, X, Table } from 'lucide-react';
@@ -29,85 +27,166 @@ interface ChartProps {
   data: VisualizationData;
 }
 
-const BarChartComponent: React.FC<ChartProps> = ({ data }) => (
-  <ResponsiveContainer width="100%" height={400}>
-    <BarChart data={data.data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-      <CartesianGrid strokeDasharray="3 3" />
-      <XAxis
-        dataKey={data.x_axis}
-        angle={-45}
-        textAnchor="end"
-        height={80}
-        interval={0}
-        tick={{ fontSize: 12 }}
-      />
-      <YAxis tick={{ fontSize: 12 }} />
-      <Tooltip />
-      <Legend />
-      <Bar dataKey={data.y_axis || 'value'} fill="#0ea5e9" />
-    </BarChart>
-  </ResponsiveContainer>
-);
+const BarChartComponent: React.FC<ChartProps> = ({ data }) => {
+  // Calculate width based on number of data points (min 50px per bar)
+  const chartWidth = Math.max(700, data.data.length * 50);
+  const chartHeight = 450;
 
-const LineChartComponent: React.FC<ChartProps> = ({ data }) => (
-  <ResponsiveContainer width="100%" height={400}>
-    <LineChart data={data.data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-      <CartesianGrid strokeDasharray="3 3" />
-      <XAxis
-        dataKey={data.x_axis}
-        angle={-45}
-        textAnchor="end"
-        height={80}
-        tick={{ fontSize: 12 }}
-      />
-      <YAxis tick={{ fontSize: 12 }} />
-      <Tooltip />
-      <Legend />
-      <Line
-        type="monotone"
-        dataKey={data.y_axis || 'value'}
-        stroke="#0ea5e9"
-        strokeWidth={2}
-        dot={{ fill: '#0ea5e9' }}
-      />
-    </LineChart>
-  </ResponsiveContainer>
-);
-
-const PieChartComponent: React.FC<ChartProps> = ({ data }) => (
-  <ResponsiveContainer width="100%" height={400}>
-    <PieChart>
-      <Pie
+  return (
+    <div style={{ width: chartWidth, height: chartHeight, minWidth: chartWidth }}>
+      <BarChart
+        width={chartWidth}
+        height={chartHeight}
         data={data.data}
-        dataKey={data.y_axis || 'value'}
-        nameKey={data.x_axis || 'name'}
-        cx="50%"
-        cy="50%"
-        outerRadius={150}
-        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+        margin={{ top: 30, right: 30, left: 150, bottom: 70 }}
       >
-        {data.data.map((_, index) => (
-          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-        ))}
-      </Pie>
-      <Tooltip />
-      <Legend />
-    </PieChart>
-  </ResponsiveContainer>
-);
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis
+          dataKey={data.x_axis}
+          angle={-45}
+          textAnchor="end"
+          height={60}
+          interval={0}
+          tick={{ fontSize: 12 }}
+          label={{
+            value: data.x_axis || 'Category',
+            position: 'insideBottom',
+            offset: -5,
+            style: { fontSize: 14, fontWeight: 600 }
+          }}
+        />
+        <YAxis
+          tick={{ fontSize: 12 }}
+          label={{
+            value: data.y_axis || 'Value',
+            angle: -90,
+            position: 'insideLeft',
+            style: { fontSize: 14, fontWeight: 600, textAnchor: 'middle' }
+          }}
+        />
+        <Tooltip />
+        <Bar dataKey={data.y_axis || 'value'} fill="#0ea5e9" />
+      </BarChart>
+    </div>
+  );
+};
 
-const ScatterChartComponent: React.FC<ChartProps> = ({ data }) => (
-  <ResponsiveContainer width="100%" height={400}>
-    <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-      <CartesianGrid strokeDasharray="3 3" />
-      <XAxis dataKey={data.x_axis} name={data.x_axis} tick={{ fontSize: 12 }} />
-      <YAxis dataKey={data.y_axis} name={data.y_axis} tick={{ fontSize: 12 }} />
-      <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-      <Legend />
-      <Scatter name="Data" data={data.data} fill="#0ea5e9" />
-    </ScatterChart>
-  </ResponsiveContainer>
-);
+const LineChartComponent: React.FC<ChartProps> = ({ data }) => {
+  // Calculate width based on number of data points (min 40px per point)
+  const chartWidth = Math.max(700, data.data.length * 40);
+  const chartHeight = 450;
+
+  return (
+    <div style={{ width: chartWidth, height: chartHeight, minWidth: chartWidth }}>
+      <LineChart
+        width={chartWidth}
+        height={chartHeight}
+        data={data.data}
+        margin={{ top: 30, right: 30, left: 150, bottom: 70 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis
+          dataKey={data.x_axis}
+          angle={-45}
+          textAnchor="end"
+          height={60}
+          interval={0}
+          tick={{ fontSize: 12 }}
+          label={{
+            value: data.x_axis || 'Category',
+            position: 'insideBottom',
+            offset: -5,
+            style: { fontSize: 14, fontWeight: 600 }
+          }}
+        />
+        <YAxis
+          tick={{ fontSize: 12 }}
+          label={{
+            value: data.y_axis || 'Value',
+            angle: -90,
+            position: 'insideLeft',
+            style: { fontSize: 14, fontWeight: 600, textAnchor: 'middle' }
+          }}
+        />
+        <Tooltip />
+        <Line
+          type="monotone"
+          dataKey={data.y_axis || 'value'}
+          stroke="#0ea5e9"
+          strokeWidth={2}
+          dot={{ fill: '#0ea5e9' }}
+        />
+      </LineChart>
+    </div>
+  );
+};
+
+const PieChartComponent: React.FC<ChartProps> = ({ data }) => {
+  const chartWidth = 700;
+  const chartHeight = 450;
+
+  return (
+    <div style={{ width: chartWidth, height: chartHeight, minWidth: chartWidth }}>
+      <PieChart width={chartWidth} height={chartHeight}>
+        <Pie
+          data={data.data}
+          dataKey={data.y_axis || 'value'}
+          nameKey={data.x_axis || 'name'}
+          cx="50%"
+          cy="50%"
+          outerRadius={150}
+          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+        >
+          {data.data.map((_, index) => (
+            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip />
+      </PieChart>
+    </div>
+  );
+};
+
+const ScatterChartComponent: React.FC<ChartProps> = ({ data }) => {
+  const chartWidth = 900;
+  const chartHeight = 450;
+
+  return (
+    <div style={{ width: chartWidth, height: chartHeight, minWidth: chartWidth }}>
+      <ScatterChart
+        width={chartWidth}
+        height={chartHeight}
+        margin={{ top: 30, right: 30, left: 150, bottom: 60 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis
+          dataKey={data.x_axis}
+          name={data.x_axis}
+          tick={{ fontSize: 12 }}
+          label={{
+            value: data.x_axis || 'X',
+            position: 'insideBottom',
+            offset: -5,
+            style: { fontSize: 14, fontWeight: 600 }
+          }}
+        />
+        <YAxis
+          dataKey={data.y_axis}
+          name={data.y_axis}
+          tick={{ fontSize: 12 }}
+          label={{
+            value: data.y_axis || 'Y',
+            angle: -90,
+            position: 'insideLeft',
+            style: { fontSize: 14, fontWeight: 600, textAnchor: 'middle' }
+          }}
+        />
+        <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+        <Scatter name="Data" data={data.data} fill="#0ea5e9" />
+      </ScatterChart>
+    </div>
+  );
+};
 
 const TableComponent: React.FC<ChartProps> = ({ data }) => {
   if (!data.data.length) return <p className="text-gray-500">No data available</p>;

@@ -1,6 +1,7 @@
 """Main FastAPI application entry point."""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -9,6 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import config
 from app.routes import chat, config as config_routes, data
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
+# Set specific loggers to appropriate levels
+logging.getLogger("app").setLevel(logging.INFO)
+logging.getLogger("langchain").setLevel(logging.WARNING)
+logging.getLogger("langgraph").setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 

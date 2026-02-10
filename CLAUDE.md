@@ -61,13 +61,14 @@ Agent communication uses shared `GraphState` (TypedDict) with fields: `messages`
 ### LLM Provider Abstraction
 `LLMService` (`llm_service.py`) provides model-agnostic LLM access:
 - Supports OpenAI, Anthropic, Google via LangChain integrations
-- Config in `backend/config/config.yaml` and environment variables
+- Configuration in `backend/config/config.yaml`, API keys in `.env`
 - Agents get LLM via `self.get_llm()` which calls `get_llm_service()`
 
 ### Frontend State Management
-- Zustand store (`chatStore.ts`) manages chat state, visualization, provider selection
-- API client (`api/client.ts`) wraps axios for `/api/chat`, `/api/config`, `/api/data` endpoints
+- Zustand store (`chatStore.ts`) manages chat state and visualization
+- API client (`api/client.ts`) wraps axios for `/api/chat`, `/api/data`, `/api/config/health` endpoints
 - Recharts renders visualizations based on `VisualizationData` specs from analytics agent
+- **Security**: LLM provider/model selection is server-side only and not exposed to frontend
 
 ## Key Files
 
@@ -82,12 +83,21 @@ Agent communication uses shared `GraphState` (TypedDict) with fields: `messages`
 
 ## Configuration
 
-Environment variables in `backend/.env`:
+### Environment Variables (`backend/.env`)
+API keys only (for security):
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
-- `DEFAULT_LLM_PROVIDER` (openai/anthropic/google)
-- `DEFAULT_LLM_MODEL`
+- `DATABASE_URL`
 
-YAML config in `backend/config/config.yaml` defines per-provider model lists, temperatures, max_tokens.
+### LLM Configuration (`backend/config/config.yaml`)
+All LLM and embedding configuration (server-side only, not exposed to frontend):
+- `llm.default_provider` - Default LLM provider (openai/anthropic/google)
+- `llm.providers.<provider>.default_model` - Default model per provider
+- `llm.providers.<provider>.temperature` - Temperature per provider
+- `llm.providers.<provider>.max_tokens` - Max tokens per provider
+- `embeddings.default_provider` - Default embedding provider
+- `embeddings.providers.<provider>.default_model` - Default embedding model per provider
+
+**Note**: For security, configuration details are never exposed to the frontend. The backend always uses settings from `config.yaml`.
 
 ## Data Sources
 

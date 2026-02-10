@@ -103,6 +103,11 @@ class DataProcessor:
         # Generate summary text
         summary_text = self._generate_summary_text(df, file_path, schema_info)
 
+        # Generate embedding for RAG retrieval
+        from app.services.llm_service import get_embedding_service
+        embedding_service = get_embedding_service()
+        embedding_vector = await embedding_service.embed_query(summary_text)
+
         # Get the appropriate metadata model class
         metadata_model = CATEGORY_MODELS[category]
 
@@ -119,8 +124,21 @@ class DataProcessor:
             row_count=len(df),
             year_range=schema_info["year_range"],
             summary_text=summary_text,
+            embedding=embedding_vector,
         )
         session.add(metadata)
+        await session.flush()  # Get the ID
+
+        # Generate tsv (full-text search vector) using PostgreSQL's to_tsvector
+        metadata_table = f"{category}_dataset_metadata"
+        await session.execute(
+            text(f"""
+                UPDATE {metadata_table}
+                SET tsv = to_tsvector('english', summary_text)
+                WHERE id = :metadata_id
+            """),
+            {"metadata_id": metadata.id}
+        )
         await session.flush()  # Get the ID
 
         # Create data table with proper SQL types and indexes
@@ -245,12 +263,18 @@ class DataProcessor:
                 nunique = int(df[col].nunique())  # Convert numpy int to Python int
                 if 2 <= nunique <= 100:  # Reasonable cardinality for grouping
                     schema["primary_dimensions"].append(col)
-                    unique_vals = sorted(df[col].dropna().unique().tolist())
-                    # Convert numpy types to Python native types
+                    # Get unique values and convert numpy types to Python native types
                     unique_vals = [
                         val.item() if hasattr(val, 'item') else val
-                        for val in unique_vals
+                        for val in df[col].dropna().unique().tolist()
                     ]
+                    # Sort values, handling mixed types by converting to strings
+                    try:
+                        unique_vals = sorted(unique_vals)
+                    except TypeError:
+                        # Mixed types (e.g., int and str) - sort as strings
+                        unique_vals = sorted(unique_vals, key=str)
+
                     schema["categorical_columns"].append({
                         "column": col,
                         "cardinality": nunique,
@@ -401,6 +425,18 @@ class DataProcessor:
             col_list = ", ".join([f'"{c}"' for c in safe_col_names])
             insert_sql = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders})'
 
+            # Build column type mapping for data conversion
+            col_types = {}
+            for col_info in schema_info["columns"]:
+                orig_col = col_info["name"]
+                dtype = col_info["dtype"]
+                if "int" in dtype:
+                    col_types[orig_col] = "int"
+                elif "float" in dtype:
+                    col_types[orig_col] = "float"
+                else:
+                    col_types[orig_col] = "text"
+
             rows = []
             for _, row in df.iterrows():
                 params = {}
@@ -409,7 +445,14 @@ class DataProcessor:
                     if pd.isna(val):
                         params[f"col{i}"] = None
                     else:
-                        params[f"col{i}"] = val.item() if hasattr(val, 'item') else val
+                        # Extract Python value from numpy types
+                        py_val = val.item() if hasattr(val, 'item') else val
+
+                        # Convert to string if column type is TEXT to avoid type mismatch
+                        if col_types.get(orig_col) == "text" and py_val is not None:
+                            params[f"col{i}"] = str(py_val)
+                        else:
+                            params[f"col{i}"] = py_val
                 rows.append(params)
 
             # Insert in batches of 500

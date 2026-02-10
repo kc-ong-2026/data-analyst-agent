@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List
 
+from sqlalchemy import text
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
@@ -115,9 +116,16 @@ Always be precise about which data you're extracting and from which source."""
             if async_session_factory is not None:
                 from app.services.rag_service import RAGService
                 rag_service = RAGService()
+                logger.info(f"Calling RAG with query: {search_query}")
                 retrieval_result = await rag_service.retrieve(
                     query=search_query,
                     top_k=10,
+                )
+
+                logger.info(
+                    f"RAG returned {len(retrieval_result.metadata_results)} metadata results, "
+                    f"{len(retrieval_result.table_schemas)} table schemas, "
+                    f"total_results={retrieval_result.total_results}"
                 )
 
                 if retrieval_result.metadata_results:
@@ -242,18 +250,25 @@ Respond with a JSON list of the most relevant dataset paths:
             logger.info("No table schemas available for SQL generation")
             return {"sql_queries": [], "sql_results": {}}
 
-        # Generate SQL queries using LLM
+        # Generate SQL query using LLM (single table only)
         try:
             sql_queries = await self._generate_sql_with_llm(current_task, table_schemas)
-            logger.info(f"Generated {len(sql_queries)} SQL queries")
+            logger.info(f"Generated SQL query for single table analysis")
 
-            # Validate SQL queries for safety
+            # Validate SQL query for safety
             validated_queries = self._validate_sql_queries(sql_queries, table_schemas)
-            logger.info(f"Validated {len(validated_queries)} SQL queries")
+            if not validated_queries:
+                logger.warning("No valid SQL query after validation")
+                return {"sql_queries": [], "sql_results": {}}
 
-            # Execute SQL queries
+            # Log the table being queried
+            table_name = validated_queries[0].get("table_name", "unknown")
+            logger.info(f"Validated SQL query for table: {table_name}")
+
+            # Execute SQL query
             sql_results = await self._execute_sql_queries(validated_queries)
-            logger.info(f"Executed SQL queries, got {len(sql_results)} result sets")
+            total_rows = sum(len(rows) for rows in sql_results.values())
+            logger.info(f"Executed SQL query, got {total_rows} rows from {table_name}")
 
             return {
                 "sql_queries": validated_queries,
@@ -305,7 +320,7 @@ Respond with a JSON list of the most relevant dataset paths:
         Returns:
             List of SQL query dictionaries with {sql, table_name, description}
         """
-        # Build schema descriptions for LLM
+        # Build schema descriptions for LLM (single table analysis)
         schema_prompts = []
         for schema in table_schemas[:3]:  # Limit to top 3 most relevant tables
             schema_prompt = schema.get("sql_schema_prompt", "")
@@ -314,7 +329,7 @@ Respond with a JSON list of the most relevant dataset paths:
 
         schemas_text = "\n\n".join(schema_prompts)
 
-        sql_prompt = f"""Generate SQL queries to answer the user's question using the provided table schemas.
+        sql_prompt = f"""Generate a SINGLE SQL query to answer the user's question using ONE table from the provided schemas.
 
 User Question: {query}
 
@@ -322,33 +337,44 @@ Available Tables:
 {schemas_text}
 
 Requirements:
-1. Generate 1-3 SQL queries that answer the question
-2. Use proper PostgreSQL syntax
-3. Include appropriate WHERE clauses for filtering
-4. Use GROUP BY for aggregations
-5. Add ORDER BY for trends/sorting
-6. Include LIMIT 100 to prevent large result sets
-7. Use column names exactly as shown in the schema
-8. Only query the tables provided above
+1. Identify the MOST RELEVANT single table that best answers the question
+2. Generate ONE SQL query that queries ONLY that table
+3. Use proper PostgreSQL syntax
+4. Include appropriate WHERE clauses for filtering
+5. Use GROUP BY for aggregations if needed
+6. Add ORDER BY for trends/sorting
+7. Include LIMIT to prevent large result sets (default 500 rows)
+8. Use column names exactly as shown in the schema
+9. Do NOT use JOINs - query only ONE table
 
 Respond in JSON format:
 {{
-    "queries": [
-        {{
-            "sql": "SELECT ... FROM ...",
-            "table_name": "table_name",
-            "description": "what this query does"
-        }}
-    ]
+    "query": {{
+        "sql": "SELECT ... FROM table_name WHERE ... GROUP BY ... ORDER BY ... LIMIT ...",
+        "description": "what this query does",
+        "table_name": "the_single_table_name"
+    }}
 }}
 
-IMPORTANT: Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, or other modification commands."""
+IMPORTANT:
+- Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, or other modification commands.
+- Query ONLY ONE table - the most relevant one for answering the question.
+- Return ONE query object, not an array of queries."""
 
         response = await self._invoke_llm([HumanMessage(content=sql_prompt)])
         parsed = self._parse_json_response(response)
 
+        # Handle single query format (new simplified approach)
+        query_obj = parsed.get("query", {})
+        if query_obj and query_obj.get("sql"):
+            # Ensure table_name is set
+            if not query_obj.get("table_name"):
+                query_obj["table_name"] = "unknown"
+            return [query_obj]  # Return as list for compatibility
+
+        # Fallback to old format if needed
         queries = parsed.get("queries", [])
-        return queries
+        return queries if queries else []
 
     def _validate_sql_queries(
         self, queries: List[Dict[str, Any]], table_schemas: List[Dict[str, Any]]
@@ -392,7 +418,7 @@ IMPORTANT: Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, 
 
             # Ensure LIMIT is present
             if "LIMIT" not in sql_upper:
-                sql += " LIMIT 100"
+                sql += " LIMIT 500"
                 query_dict["sql"] = sql
 
             validated.append(query_dict)
@@ -402,45 +428,48 @@ IMPORTANT: Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, 
     async def _execute_sql_queries(
         self, queries: List[Dict[str, Any]]
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Execute validated SQL queries.
+        """Execute validated SQL query (single table only).
 
         Args:
-            queries: List of validated SQL query dictionaries
+            queries: List with single SQL query dictionary
 
         Returns:
-            Dictionary mapping table names to result rows
+            Dictionary with single key "query_result" containing all result rows
         """
         from app.db.session import get_db
 
-        results = {}
+        if not queries:
+            return {}
 
+        # Execute the single table query
         async with get_db() as session:
-            for query_dict in queries:
-                sql = query_dict.get("sql", "")
-                table_name = query_dict.get("table_name", "")
-                description = query_dict.get("description", "")
+            query_dict = queries[0]  # Only one query for single table
+            sql = query_dict.get("sql", "")
+            table_name = query_dict.get("table_name", "")
+            description = query_dict.get("description", "Query result")
 
-                try:
-                    # Execute query with text() for parameterized execution
-                    result = await session.execute(text(sql))
-                    rows = result.fetchall()
-                    columns = result.keys()
+            try:
+                # Execute query with text() for parameterized execution
+                result = await session.execute(text(sql))
+                rows = result.fetchall()
+                columns = result.keys()
 
-                    # Convert to list of dicts
-                    result_data = [
-                        {col: val for col, val in zip(columns, row)}
-                        for row in rows
-                    ]
+                # Convert to list of dicts
+                result_data = [
+                    {col: val for col, val in zip(columns, row)}
+                    for row in rows
+                ]
 
-                    # Store results with descriptive key
-                    result_key = f"{table_name}_{description}" if description else table_name
-                    results[result_key] = result_data
+                logger.info(
+                    f"SQL query returned {len(result_data)} rows from table: {table_name}"
+                )
 
-                    logger.info(f"SQL query returned {len(result_data)} rows for {result_key}")
-                except Exception as e:
-                    logger.error(f"Failed to execute SQL for {table_name}: {e}")
+                # Return single result with table name for context
+                return {"query_result": result_data}
 
-        return results
+            except Exception as e:
+                logger.error(f"Failed to execute SQL query on {table_name}: {e}", exc_info=True)
+                return {}
 
     async def _load_raw_data_node(self, state: GraphState) -> Dict[str, Any]:
         """Node: Load data from RAG results or fall back to file loading.
@@ -456,46 +485,44 @@ IMPORTANT: Only use SELECT statements. Do not use INSERT, UPDATE, DELETE, DROP, 
         else:
             result = await self._load_from_files(state)
 
-        # Merge SQL results if available
+        # Merge SQL results if available (single table query result)
         sql_results = state.get("sql_results", {})
-        if sql_results:
+        if sql_results and "query_result" in sql_results:
             loaded_datasets = result.get("intermediate_results", {}).get("loaded_datasets", {})
+            rows = sql_results["query_result"]
 
-            # Add SQL results as separate datasets
-            for result_key, rows in sql_results.items():
-                if rows:
-                    # Extract columns from first row
-                    columns = list(rows[0].keys()) if rows else []
-                    loaded_datasets[f"SQL_{result_key}"] = {
-                        "path": "SQL query result",
-                        "columns": columns,
-                        "shape": [len(rows), len(columns)],
-                        "dtypes": {},
-                        "data": rows,
-                        "source": "sql",
-                    }
+            if rows:
+                # Extract columns from first row
+                columns = list(rows[0].keys()) if rows else []
+                loaded_datasets["query_result"] = {
+                    "path": "SQL query result",
+                    "columns": columns,
+                    "shape": [len(rows), len(columns)],
+                    "dtypes": {},
+                    "data": rows,
+                    "source": "sql",
+                }
 
-            result["intermediate_results"]["loaded_datasets"] = loaded_datasets
-            logger.info(f"Merged {len(sql_results)} SQL result sets into loaded datasets")
+                result["intermediate_results"]["loaded_datasets"] = loaded_datasets
+                logger.info(f"Loaded SQL query result with {len(rows)} rows from single table")
 
         return result
 
     async def _load_from_rag(self, state: GraphState) -> Dict[str, Any]:
         """Load datasets from RAG retrieval results.
 
-        In folder-based architecture, we rely on SQL queries for data loading
-        rather than loading full datasets into memory.
+        Single-table analysis: Only load from the most relevant table.
         """
         retrieval_context = state.get("intermediate_results", {}).get("retrieval_context", {})
         metadata_results = retrieval_context.get("metadata_results", [])
 
         loaded_datasets = {}
 
-        # Load sample data from data tables for preview/context
+        # Load sample data from the MOST RELEVANT table only (single-table analysis)
         from app.db.session import get_db
 
         async with get_db() as session:
-            for metadata_info in metadata_results[:3]:  # Limit to top 3 results
+            for metadata_info in metadata_results[:1]:  # Only load from top 1 most relevant table
                 table_name = metadata_info.get("table_name", "")
                 if not table_name:
                     continue

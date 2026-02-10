@@ -1,5 +1,6 @@
 """Agent Orchestrator - Manages the multi-agent LangGraph workflow."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
@@ -9,6 +10,8 @@ from .base_agent import AgentRole, AgentResponse, AgentState, BaseAgent, GraphSt
 from .coordinator_agent import DataCoordinatorAgent
 from .extraction_agent import DataExtractionAgent
 from .analytics_agent import AnalyticsAgent
+
+logger = logging.getLogger(__name__)
 
 
 class AgentOrchestrator:
@@ -110,8 +113,10 @@ class AgentOrchestrator:
             first_step = workflow_plan[0]
             agent = first_step.get("agent", "extraction")
             if agent == "analytics":
+                logger.info("Routing: coordinator -> analytics")
                 return "analytics"
 
+        logger.info("Routing: coordinator -> extraction")
         return "extraction"
 
     def _route_after_extraction(self, state: GraphState) -> str:
@@ -119,17 +124,23 @@ class AgentOrchestrator:
         # Check for errors that should stop execution
         errors = state.get("errors", [])
         if len(errors) > 3:
+            logger.warning(f"Too many errors ({len(errors)}), stopping workflow")
             return "end"
 
+        logger.info("Routing: extraction -> analytics")
         return "analytics"
 
     async def _run_coordinator(self, state: GraphState) -> Dict[str, Any]:
         """Run the coordinator agent."""
+        logger.info("=" * 60)
+        logger.info("Running COORDINATOR AGENT")
+        logger.info("=" * 60)
         agent = self.agents[AgentRole.COORDINATOR]
         agent_state = AgentState.from_graph_state(state)
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
+        logger.info(f"Coordinator result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}...")
 
         # Merge response state back
         if response.state:
@@ -151,11 +162,15 @@ class AgentOrchestrator:
 
     async def _run_extraction(self, state: GraphState) -> Dict[str, Any]:
         """Run the extraction agent."""
+        logger.info("=" * 60)
+        logger.info("Running EXTRACTION AGENT")
+        logger.info("=" * 60)
         agent = self.agents[AgentRole.EXTRACTION]
         agent_state = AgentState.from_graph_state(state)
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
+        logger.info(f"Extraction result: success={response.success}, data_sources={len(state.get('extracted_data', {}))}")
 
         # Merge response state back
         if response.state:
@@ -174,11 +189,15 @@ class AgentOrchestrator:
 
     async def _run_analytics(self, state: GraphState) -> Dict[str, Any]:
         """Run the analytics agent."""
+        logger.info("=" * 60)
+        logger.info("Running ANALYTICS AGENT")
+        logger.info("=" * 60)
         agent = self.agents[AgentRole.ANALYTICS]
         agent_state = AgentState.from_graph_state(state)
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
+        logger.info(f"Analytics result: success={response.success}, has_visualization={response.visualization is not None}")
 
         # Merge response state back
         result = {
@@ -235,8 +254,17 @@ class AgentOrchestrator:
         }
 
         try:
+            logger.info("\n" + "=" * 80)
+            logger.info("STARTING MULTI-AGENT WORKFLOW")
+            logger.info(f"User message: {message}")
+            logger.info("=" * 80 + "\n")
+
             # Run the orchestration graph
             result = await self._orchestration_graph.ainvoke(initial_state)
+
+            logger.info("\n" + "=" * 80)
+            logger.info("WORKFLOW COMPLETED SUCCESSFULLY")
+            logger.info("=" * 80 + "\n")
 
             # Extract final response
             intermediate = result.get("intermediate_results", {})
