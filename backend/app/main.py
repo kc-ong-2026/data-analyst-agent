@@ -101,6 +101,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Auto-ingest if database is empty
     await _check_and_ingest()
 
+    # Log LangSmith tracing status
+    langsmith_config = config.get_langsmith_config()
+    if langsmith_config["enabled"] and langsmith_config["api_key_configured"]:
+        logger.info(
+            f"LangSmith tracing ENABLED - Project: {langsmith_config['project_name']}"
+        )
+        logger.info(
+            "View traces at: https://smith.langchain.com"
+        )
+    else:
+        logger.info("LangSmith tracing DISABLED")
+        if not langsmith_config["api_key_configured"]:
+            logger.info("  Reason: LANGCHAIN_API_KEY not set in environment")
+        elif not langsmith_config["enabled"]:
+            logger.info("  Reason: langsmith.enabled=false in config.yaml")
+
     # Start checkpoint cleanup background task
     cleanup_task = asyncio.create_task(_cleanup_expired_checkpoints())
     logger.info("Started checkpoint cleanup background task")

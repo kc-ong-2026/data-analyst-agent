@@ -89,3 +89,12 @@ data:
 langgraph:
   max_iterations: 10
   recursion_limit: 25
+
+# LangSmith Configuration
+langsmith:
+  enabled: true  # Master switch for tracing
+  project_name: "govtech-multi-agent-system"
+  tags:
+    - "production"
+    - "multi-agent"
+    - "singapore-data"

@@ -144,6 +144,21 @@ class AppConfig:
         }
         return key_map.get(provider)
 
+    def get_langsmith_config(self) -> Dict[str, Any]:
+        """Get LangSmith tracing configuration."""
+        langsmith_config = self.yaml_config.get("langsmith", {})
+
+        # Check if tracing is enabled in YAML and env var is set
+        yaml_enabled = langsmith_config.get("enabled", False)
+        env_enabled = os.environ.get("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+
+        return {
+            "enabled": yaml_enabled and env_enabled,
+            "project_name": langsmith_config.get("project_name", "govtech-multi-agent-system"),
+            "tags": langsmith_config.get("tags", []),
+            "api_key_configured": bool(os.environ.get("LANGCHAIN_API_KEY")),
+        }
+
 
 # Global config instance
 config = AppConfig()
