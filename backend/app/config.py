@@ -149,6 +149,82 @@ class AppConfig:
             "max_datasets": rag_config.get("max_datasets", 3),
         }
 
+    def get_fallback_config(self) -> Dict[str, Any]:
+        """
+        Get LLM fallback configuration with sensible defaults.
+
+        Returns a complete fallback configuration including:
+        - Retry settings (max_attempts, backoff, jitter)
+        - Circuit breaker settings (thresholds, timeout)
+        - Provider and model fallback chains
+        - Agent-specific overrides
+        - Logging settings
+        """
+        fallback_config = self.yaml_config.get("llm_fallback", {})
+
+        # Define sensible defaults
+        defaults = {
+            "enabled": True,
+            "retry": {
+                "max_attempts": 3,
+                "initial_delay": 1.0,
+                "backoff_multiplier": 2.0,
+                "max_delay": 30.0,
+                "jitter": True,
+                "jitter_range": [0.0, 0.5],
+            },
+            "circuit_breaker": {
+                "enabled": True,
+                "failure_threshold": 5,
+                "success_threshold": 2,
+                "timeout": 60,
+                "half_open_max_calls": 3,
+            },
+            "provider_chain": ["anthropic", "openai", "google"],
+            "model_chains": {
+                "anthropic": [
+                    "claude-3-haiku-20240307",
+                    "claude-sonnet-4-5-20250929",
+                    "claude-opus-4-6",
+                ],
+                "openai": [
+                    "gpt-3.5-turbo",
+                    "gpt-4",
+                    "gpt-4-turbo-preview",
+                ],
+                "google": ["gemini-pro"],
+            },
+            "agent_overrides": {},
+            "logging": {
+                "log_retries": True,
+                "log_fallbacks": True,
+                "log_circuit_breaker_state_changes": True,
+                "log_level": "INFO",
+            },
+        }
+
+        # Deep merge fallback config with defaults
+        return self._deep_merge(defaults, fallback_config)
+
+    def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Deep merge two dictionaries, with override taking precedence.
+
+        Args:
+            base: Base dictionary with defaults
+            override: Override dictionary from YAML config
+
+        Returns:
+            Merged dictionary
+        """
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
     def get_api_key(self, provider: str) -> Optional[str]:
         """Get API key for a specific provider."""
         key_map = {
@@ -176,3 +252,8 @@ class AppConfig:
 
 # Global config instance
 config = AppConfig()
+
+
+def get_config() -> AppConfig:
+    """Get global configuration instance."""
+    return config

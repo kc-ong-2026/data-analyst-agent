@@ -106,7 +106,28 @@ class LLMService:
         system_prompt: Optional[str] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
-        """Generate a response from the LLM."""
+        """
+        Generate a response from the LLM with error classification.
+
+        This method wraps LLM calls and converts provider-specific errors
+        into custom exceptions that the resilient LLM service can handle:
+        - TransientLLMError: Rate limits, timeouts (should retry)
+        - PermanentLLMError: Auth errors, bad requests (should fallback)
+        - TokenLimitError: Context length exceeded (need larger context model)
+
+        Args:
+            prompt: The prompt to send to the LLM
+            system_prompt: Optional system prompt
+            chat_history: Optional chat history
+
+        Returns:
+            Generated text response
+
+        Raises:
+            TransientLLMError: For transient errors (rate limits, timeouts)
+            PermanentLLMError: For permanent errors (auth, validation)
+            TokenLimitError: For context length exceeded errors
+        """
         messages = []
 
         if system_prompt:
@@ -121,10 +142,132 @@ class LLMService:
 
         messages.append(HumanMessage(content=prompt))
 
-        logger.info(f"Calling LLM: {self.provider}/{self.model or 'default'}, prompt_length={len(prompt)}, num_messages={len(messages)}")
-        response = await self.llm.ainvoke(messages)
-        logger.info(f"LLM response received: length={len(response.content) if response.content else 0}")
-        return response.content
+        logger.info(
+            f"Calling LLM: {self.provider}/{self.model or 'default'}, "
+            f"prompt_length={len(prompt)}, num_messages={len(messages)}"
+        )
+
+        try:
+            response = await self.llm.ainvoke(messages)
+            logger.info(
+                f"LLM response received: length={len(response.content) if response.content else 0}"
+            )
+            return response.content
+
+        except Exception as e:
+            # Convert provider-specific errors to custom exceptions
+            from app.services.llm_exceptions import (
+                TransientLLMError,
+                PermanentLLMError,
+                TokenLimitError,
+            )
+
+            error_str = str(e).lower()
+
+            # Check for transient errors (should retry)
+            if self._is_transient_error(e):
+                logger.warning(
+                    f"Transient LLM error: {self.provider}/{self.model} - {e}"
+                )
+                raise TransientLLMError(
+                    str(e),
+                    provider=self.provider,
+                    model=self.model,
+                    original_error=e,
+                )
+
+            # Check for token limit errors (need larger context model)
+            if any(keyword in error_str for keyword in [
+                "context_length_exceeded",
+                "maximum_context_length",
+                "token_limit",
+                "tokens",
+                "too many tokens",
+            ]):
+                logger.warning(
+                    f"Token limit error: {self.provider}/{self.model} - {e}"
+                )
+                raise TokenLimitError(
+                    str(e),
+                    provider=self.provider,
+                    model=self.model,
+                    original_error=e,
+                )
+
+            # Check for permanent errors (should fallback to different provider)
+            if self._is_permanent_error(e):
+                logger.error(
+                    f"Permanent LLM error: {self.provider}/{self.model} - {e}"
+                )
+                raise PermanentLLMError(
+                    str(e),
+                    provider=self.provider,
+                    model=self.model,
+                    original_error=e,
+                )
+
+            # Unknown error, log and re-raise
+            logger.error(
+                f"Unknown LLM error: {self.provider}/{self.model} - {e}"
+            )
+            raise
+
+    def _is_transient_error(self, error: Exception) -> bool:
+        """
+        Check if error is transient and should be retried.
+
+        Transient errors include:
+        - HTTP 429: Rate limit exceeded
+        - HTTP 503: Service unavailable
+        - HTTP 504: Gateway timeout
+        - HTTP 408: Request timeout
+        - Connection errors
+        - Timeout errors
+
+        Args:
+            error: Exception to check
+
+        Returns:
+            True if error is transient, False otherwise
+        """
+        # Check HTTP status codes
+        if hasattr(error, 'status_code'):
+            return error.status_code in {429, 503, 504, 408}
+
+        # Check for timeout and connection errors
+        import asyncio
+        try:
+            import httpx
+            return isinstance(error, (
+                asyncio.TimeoutError,
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                httpx.NetworkError,
+                httpx.RemoteProtocolError,
+            ))
+        except ImportError:
+            # If httpx not available, just check asyncio timeout
+            return isinstance(error, asyncio.TimeoutError)
+
+    def _is_permanent_error(self, error: Exception) -> bool:
+        """
+        Check if error is permanent and should trigger provider fallback.
+
+        Permanent errors include:
+        - HTTP 400: Bad request (malformed input)
+        - HTTP 401: Unauthorized (invalid API key)
+        - HTTP 403: Forbidden (insufficient permissions)
+        - HTTP 402: Payment required (billing issue)
+
+        Args:
+            error: Exception to check
+
+        Returns:
+            True if error is permanent, False otherwise
+        """
+        if hasattr(error, 'status_code'):
+            return error.status_code in {400, 401, 403, 402}
+        return False
 
 
 class EmbeddingService:

@@ -35,6 +35,9 @@ plotly==5.18.0
 # Async support
 aiofiles==23.2.1
 
+# Retry and resilience
+tenacity==8.2.3
+
 # CORS
 python-jose==3.3.0
 

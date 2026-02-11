@@ -266,15 +266,26 @@ class BaseAgent(ABC):
         self,
         messages: List[BaseMessage],
         include_system_prompt: bool = True,
+        enable_fallback: bool = True,
     ) -> str:
-        """Invoke the LLM with messages.
+        """Invoke the LLM with messages, optionally with automatic fallback.
+
+        This method supports two modes:
+        1. With fallback (default): Uses ResilientLLMService for automatic retry
+           and fallback to alternative models/providers on failures
+        2. Without fallback: Direct call to LLM (legacy mode)
 
         Args:
             messages: List of messages to send to the LLM
             include_system_prompt: Whether to include the system prompt
+            enable_fallback: Whether to enable automatic retry/fallback mechanism
 
         Returns:
             The LLM response content
+
+        Raises:
+            AllProvidersFailedError: If fallback is enabled and all providers fail
+            Exception: If fallback is disabled and LLM call fails
         """
         all_messages = []
 
@@ -283,9 +294,37 @@ class BaseAgent(ABC):
 
         all_messages.extend(messages)
 
-        llm = self.get_llm()
-        response = await llm.ainvoke(all_messages)
-        return response.content
+        # Check if fallback should be enabled based on config
+        if enable_fallback and self._should_enable_fallback():
+            # Use resilient service with automatic retry and fallback
+            from app.services.llm_resilience import get_resilient_llm_service
+
+            resilient_service = get_resilient_llm_service()
+
+            response = await resilient_service.generate_with_fallback(
+                messages=all_messages,
+                primary_provider=self.llm_provider,
+                primary_model=self.llm_model,
+            )
+            return response
+        else:
+            # Legacy path without fallback (direct LLM call)
+            llm = self.get_llm()
+            response = await llm.ainvoke(all_messages)
+            return response.content
+
+    def _should_enable_fallback(self) -> bool:
+        """
+        Check if fallback should be enabled based on configuration.
+
+        Returns:
+            True if fallback is enabled in config, False otherwise
+        """
+        from app.config import get_config
+
+        config = get_config()
+        fallback_config = config.get_fallback_config()
+        return fallback_config.get("enabled", False)
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(role={self.role.value}, name={self.name})>"

@@ -47,20 +47,19 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 combined_message = request.message
 
                 if conversation_id in conversations and len(conversations[conversation_id]) >= 2:
-                    # Get last assistant message and the user message before it
+                    # Get last assistant message and ALL previous user messages
                     last_assistant_msg = None
-                    original_user_msg = None
+                    all_user_messages = []
 
                     for i in range(len(conversations[conversation_id]) - 1, -1, -1):
                         msg = conversations[conversation_id][i]
                         if msg.role == "assistant" and last_assistant_msg is None:
                             last_assistant_msg = msg.content.lower()
-                        elif msg.role == "user" and last_assistant_msg is not None and original_user_msg is None:
-                            original_user_msg = msg.content
-                            break
+                        elif msg.role == "user":
+                            all_user_messages.insert(0, msg.content)  # Insert at start to maintain order
 
                     # Check if assistant was asking for clarification
-                    if last_assistant_msg and original_user_msg:
+                    if last_assistant_msg and all_user_messages:
                         clarification_keywords = [
                             "which year", "specify year", "year range", "what year",
                             "available data", "please specify", "interested in", "provide",
@@ -69,11 +68,11 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                         is_asking_for_clarification = any(kw in last_assistant_msg for kw in clarification_keywords)
 
                         if is_asking_for_clarification:
-                            # Combine messages for full context!
-                            combined_message = f"{original_user_msg} {request.message}"
+                            # Combine ALL previous user messages with current one for full context!
+                            combined_message = " ".join(all_user_messages + [request.message])
                             logger.info(f"🔗 [SSE] Context Append Detected!")
-                            logger.info(f"   Original query: '{original_user_msg}'")
-                            logger.info(f"   User response: '{request.message}'")
+                            logger.info(f"   Previous messages: {all_user_messages}")
+                            logger.info(f"   Current response: '{request.message}'")
                             logger.info(f"   Combined query: '{combined_message}'")
 
                 # Execute workflow with combined message
@@ -175,32 +174,32 @@ async def chat(request: ChatRequest) -> ChatResponse:
         combined_message = request.message
 
         if conversation_id in conversations and len(conversations[conversation_id]) >= 2:
-            # Get last assistant message and the user message before it
+            # Get last assistant message and ALL previous user messages
             last_assistant_msg = None
-            original_user_msg = None
+            all_user_messages = []
 
             for i in range(len(conversations[conversation_id]) - 1, -1, -1):
                 msg = conversations[conversation_id][i]
                 if msg.role == "assistant" and last_assistant_msg is None:
                     last_assistant_msg = msg.content.lower()
-                elif msg.role == "user" and last_assistant_msg is not None and original_user_msg is None:
-                    original_user_msg = msg.content
-                    break
+                elif msg.role == "user":
+                    all_user_messages.insert(0, msg.content)  # Insert at start to maintain order
 
             # Check if assistant was asking for clarification
-            if last_assistant_msg and original_user_msg:
+            if last_assistant_msg and all_user_messages:
                 clarification_keywords = [
                     "which year", "specify year", "year range", "what year",
-                    "available data", "please specify", "interested in", "provide"
+                    "available data", "please specify", "interested in", "provide",
+                    "dimension", "age group", "sex/gender", "industry", "qualification"
                 ]
                 is_asking_for_clarification = any(kw in last_assistant_msg for kw in clarification_keywords)
 
                 if is_asking_for_clarification:
-                    # Combine messages for full context!
-                    combined_message = f"{original_user_msg} {request.message}"
+                    # Combine ALL previous user messages with current one for full context!
+                    combined_message = " ".join(all_user_messages + [request.message])
                     logger.info(f"🔗 Context Append Detected!")
-                    logger.info(f"   Original query: '{original_user_msg}'")
-                    logger.info(f"   User response: '{request.message}'")
+                    logger.info(f"   Previous messages: {all_user_messages}")
+                    logger.info(f"   Current response: '{request.message}'")
                     logger.info(f"   Combined query: '{combined_message}'")
 
         # Get chat history - DISABLED to make each query independent
