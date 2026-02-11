@@ -16,21 +16,25 @@ class TestDatabaseIntegration:
 
     async def test_database_connection(self, async_db_session):
         """Test that database connection works."""
+        from sqlalchemy import text
+
         # Simple query to verify DB connection
-        result = await async_db_session.execute("SELECT 1 as test")
+        result = await async_db_session.execute(text("SELECT 1 as test"))
         row = result.fetchone()
         assert row[0] == 1
         print("✅ Database connection working")
 
     async def test_dataset_metadata_table_exists(self, async_db_session):
         """Test that dataset_metadata table exists."""
+        from sqlalchemy import text
+
         result = await async_db_session.execute(
-            """
+            text("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_name = 'dataset_metadata'
             )
-            """
+            """)
         )
         exists = result.scalar()
         assert exists is True
@@ -73,8 +77,9 @@ class TestImportsWork:
 
         config = get_config()
         assert config is not None
-        assert hasattr(config, 'llm')
-        assert hasattr(config, 'rag')
+        assert hasattr(config, 'get_llm_config')
+        assert hasattr(config, 'get_rag_config')
+        assert hasattr(config, 'yaml_config')
         print("✅ Configuration loads successfully")
 
 
@@ -90,8 +95,9 @@ class TestConfigurationLoading:
         config = get_config()
 
         assert config is not None
-        assert hasattr(config, 'llm')
-        assert hasattr(config, 'rag')
+        assert hasattr(config, 'get_llm_config')
+        assert hasattr(config, 'get_rag_config')
+        assert hasattr(config, 'yaml_config')
         print("✅ Configuration loaded")
 
     def test_rag_config_has_required_fields(self):
@@ -119,9 +125,13 @@ class TestConfigurationLoading:
         from app.config import get_config
 
         config = get_config()
+        llm_config = config.get_llm_config()
 
-        assert hasattr(config.llm, 'default_provider')
-        assert hasattr(config.llm, 'providers')
+        # Check that config returns expected fields
+        required_fields = ['provider', 'model', 'temperature', 'max_tokens']
+        for field in required_fields:
+            assert field in llm_config, f"Missing field: {field}"
+
         print("✅ LLM config has required fields")
 
 

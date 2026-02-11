@@ -319,12 +319,15 @@ class RagasEvaluator:
         try:
             results = evaluate(dataset, metrics=metrics_to_use)
 
+            # Convert to pandas and extract mean scores
+            df = results.to_pandas()
+
             result = RagasResult(
-                context_precision=results.get("context_precision"),
-                context_recall=results.get("context_recall"),
-                faithfulness=results.get("faithfulness"),
-                answer_relevancy=results.get("answer_relevancy"),
-                answer_correctness=results.get("answer_correctness"),
+                context_precision=df["context_precision"].mean() if "context_precision" in df.columns else None,
+                context_recall=df["context_recall"].mean() if "context_recall" in df.columns else None,
+                faithfulness=df["faithfulness"].mean() if "faithfulness" in df.columns else None,
+                answer_relevancy=df["answer_relevancy"].mean() if "answer_relevancy" in df.columns else None,
+                answer_correctness=df["answer_correctness"].mean() if "answer_correctness" in df.columns else None,
             )
 
             logger.info(f"End-to-end evaluation results: {result.to_dict()}")

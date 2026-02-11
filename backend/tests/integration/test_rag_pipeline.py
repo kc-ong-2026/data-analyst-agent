@@ -31,30 +31,30 @@ class TestRAGPipelineEndToEnd:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "average income statistics in 2020"
 
         with PerformanceTimer() as timer:
             # Full pipeline
-            results = await rag_service.search_datasets(query, top_k=5)
+            results = await rag_service.retrieve(query=query, top_k=5)
 
         print(f"\nPipeline completed in {timer.elapsed_ms:.0f}ms")
-        print(f"Retrieved {len(results)} datasets")
+        print(f"Retrieved {len(results.table_schemas)} datasets")
 
         # Should return results
-        assert len(results) > 0
-        assert len(results) <= 5
+        assert len(results.table_schemas) > 0
+        assert len(results.table_schemas) <= 5
 
         # Results should have required fields
-        for result in results:
-            assert "dataset_name" in result
-            assert "description" in result
-            assert "score" in result
-            assert "file_path" in result
+        for schema in results.table_schemas:
+            assert hasattr(schema, "table_name")
+            assert hasattr(schema, "description")
+            assert hasattr(schema, "score")
+            assert hasattr(schema, "file_path")
 
         # Scores should be in descending order
-        scores = [r["score"] for r in results]
+        scores = [schema.score for schema in results.table_schemas]
         assert scores == sorted(scores, reverse=True)
 
     @pytest.mark.asyncio
@@ -64,9 +64,9 @@ class TestRAGPipelineEndToEnd:
         sample_datasets,
     ):
         """Test query embedding generation."""
-        from app.services.embedding_service import EmbeddingService
+        from app.services.llm_service import get_embedding_service
 
-        embedding_service = EmbeddingService()
+        embedding_service = get_embedding_service()
 
         query = "employment rate statistics"
 
@@ -92,7 +92,7 @@ class TestRAGPipelineEndToEnd:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "income data"
 
@@ -120,7 +120,7 @@ class TestRAGPipelineEndToEnd:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "employment statistics"
 
@@ -148,7 +148,7 @@ class TestRAGPipelineEndToEnd:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "income statistics"
 
@@ -181,7 +181,7 @@ class TestRAGPipelineEndToEnd:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "average income data"
 
@@ -221,7 +221,7 @@ class TestDatabaseIntegration:
 
         # Create multiple RAG service instances
         services = [
-            RAGService(config, async_db_session)
+            RAGService()
             for _ in range(5)
         ]
 
@@ -249,15 +249,16 @@ class TestDatabaseIntegration:
         config = get_config()
 
         # Create RAG service without DB session
-        rag_service = RAGService(config, None)
+        rag_service = RAGService()
 
         # Should handle gracefully
         query = "income data"
 
         try:
-            results = await rag_service.search_datasets(query, top_k=5)
+            results = await rag_service.retrieve(query=query, top_k=5)
             # May return empty results or fallback
-            assert isinstance(results, list)
+            from app.services.rag_models import FolderRetrievalResult
+            assert isinstance(results, FolderRetrievalResult)
         except Exception as e:
             # Should raise clear error, not crash
             assert "database" in str(e).lower() or "session" in str(e).lower()
@@ -270,13 +271,15 @@ class TestDatabaseIntegration:
     ):
         """Test that vector indexes exist in database."""
         # Query to check for IVFFlat index
+        from sqlalchemy import text
+
         result = await async_db_session.execute(
-            """
+            text("""
             SELECT indexname
             FROM pg_indexes
             WHERE tablename = 'data_chunks'
             AND indexname LIKE '%embedding%'
-            """
+            """)
         )
 
         indexes = result.fetchall()
@@ -302,13 +305,13 @@ class TestDataQualityAndConsistency:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "income statistics"
 
         # Search multiple times
-        results_1 = await rag_service.search_datasets(query, top_k=5)
-        results_2 = await rag_service.search_datasets(query, top_k=5)
+        results_1 = await rag_service.retrieve(query=query, top_k=5)
+        results_2 = await rag_service.retrieve(query=query, top_k=5)
 
         # Results should be identical
         assert len(results_1) == len(results_2)
@@ -330,11 +333,11 @@ class TestDataQualityAndConsistency:
         from pathlib import Path
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "employment data"
 
-        results = await rag_service.search_datasets(query, top_k=5)
+        results = await rag_service.retrieve(query=query, top_k=5)
 
         # Check file paths
         for result in results:
@@ -355,11 +358,11 @@ class TestDataQualityAndConsistency:
         from app.config import get_config
 
         config = get_config()
-        rag_service = RAGService(config, async_db_session)
+        rag_service = RAGService()
 
         query = "income data"
 
-        results = await rag_service.search_datasets(query, top_k=10)
+        results = await rag_service.retrieve(query=query, top_k=10)
 
         # Check for duplicates
         dataset_names = [r["dataset_name"] for r in results]

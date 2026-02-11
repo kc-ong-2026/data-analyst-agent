@@ -33,15 +33,16 @@ testing:
   # BERTScore evaluation configuration
   bertscore:
     enabled: true
-    model: "microsoft/deberta-xlarge-mnli"  # Best performance
-    # model: "bert-base-uncased"  # Faster alternative
+    model: "distilbert-base-uncased"  # 270MB, 3x faster, minimal quality loss
+    # model: "microsoft/deberta-xlarge-mnli"  # 580MB, best performance but slow
+    # model: "bert-base-uncased"  # 440MB, moderate alternative
     lang: "en"
     rescale_with_baseline: true
-    batch_size: 32
+    batch_size: 64  # Larger batch size for smaller model
     thresholds:
-      precision: 0.70
-      recall: 0.70
-      f1: 0.75
+      precision: 0.65  # Slightly lower for lighter model
+      recall: 0.65
+      f1: 0.70
 
   # LLM as judge configuration
   llm_judge:

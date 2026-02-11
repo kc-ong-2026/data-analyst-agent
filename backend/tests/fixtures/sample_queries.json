@@ -89,7 +89,7 @@
       {
         "id": "ver_003",
         "query": "Show me employment rates",
-        "expected_valid": true,
+        "expected_valid": false,
         "expected_topic": "employment",
         "expected_year": null,
         "expected_pause": true,

@@ -12,6 +12,7 @@ Tests the analytics agent's ability to:
 import pytest
 import pandas as pd
 import numpy as np
+from itertools import cycle
 from typing import Dict, Any
 from unittest.mock import AsyncMock, patch
 import matplotlib.pyplot as plt
@@ -161,7 +162,8 @@ result = df.groupby('age_group')['average_income'].mean()
         mock_explanation = "The average income by age group shows variation across different age categories."
 
         with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.side_effect = [mock_code, mock_explanation]
+            # Use cycle to handle multiple REACT loop calls
+            mock_llm.side_effect = cycle([mock_code, mock_explanation])
 
             agent = AnalyticsAgent(config)
 
@@ -445,7 +447,8 @@ result = df['average_income'].mean()
         mock_explanation = "Based on the analysis, the average income in 2020 was $4,500, reflecting typical earnings during that year."
 
         with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.side_effect = [mock_code, mock_explanation]
+            # Use cycle to handle multiple REACT loop calls
+            mock_llm.side_effect = cycle([mock_code, mock_explanation])
 
             agent = AnalyticsAgent(config)
 
@@ -671,22 +674,24 @@ class TestAnalyticsAccuracy:
             mock_explanation = f"Analysis result for: {test_case['query']}"
 
             with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
-                mock_llm.side_effect = [mock_code, mock_explanation]
+                # Always return code for REACT loop calls (it will call multiple times)
+                # Return code multiple times, then explanation at the end
+                mock_llm.side_effect = cycle([mock_code, mock_code, mock_code, mock_explanation])
 
                 agent = AnalyticsAgent(config)
 
-                # Create mock data
+                # Create mock data with all necessary columns
                 state = {
                     "query": test_case["query"],
                     "messages": [],
                     "extracted_data": {
                         "test": {
                             "dataset_name": "test",
-                            "columns": ["age_group", "value"],
-                            "dtypes": {"age_group": "object", "value": "float64"},
+                            "columns": ["year", "age_group", "value"],
+                            "dtypes": {"year": "int64", "age_group": "object", "value": "float64"},
                             "data": [
-                                {"age_group": "25-34", "value": 100.0},
-                                {"age_group": "35-44", "value": 200.0},
+                                {"year": 2020, "age_group": "25-34", "value": 100.0},
+                                {"year": 2021, "age_group": "35-44", "value": 200.0},
                             ],
                             "source": "dataframe",
                         }
