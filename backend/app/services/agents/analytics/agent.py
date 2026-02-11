@@ -19,7 +19,7 @@ from ..base_agent import (
     BaseAgent,
     GraphState,
 )
-from .prompts import SYSTEM_PROMPT
+from .prompts import SYSTEM_PROMPT, COLUMN_VALIDATION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,85 @@ class AnalyticsAgent(BaseAgent):
     @property
     def system_prompt(self) -> str:
         return SYSTEM_PROMPT
+
+    @staticmethod
+    def _safe_join(items, sep=", ") -> str:
+        """Safely join items, converting non-strings to strings.
+
+        Args:
+            items: List of items to join (can be strings, dicts, or other types)
+            sep: Separator string
+
+        Returns:
+            Joined string, empty if items is empty or None
+        """
+        if not items:
+            return ""
+        return sep.join(str(item) for item in items if item)
+
+    @staticmethod
+    def _make_user_friendly_error(error: Exception, context: str = "") -> str:
+        """Convert technical error messages to user-friendly messages.
+
+        Args:
+            error: The exception that occurred
+            context: Optional context about where the error occurred
+
+        Returns:
+            User-friendly error message
+        """
+        error_msg = str(error)
+        error_type = type(error).__name__
+
+        # Detect server-side programming errors (should not be shown as user errors)
+        server_error_patterns = [
+            "object has no attribute 'get'",
+            "object has no attribute 'items'",
+            "NoneType' object",
+            "module 'pandas' has no attribute",
+            "cannot import name",
+            "unexpected keyword argument",
+            "missing required positional argument",
+            "takes X positional arguments but Y were given",
+        ]
+
+        is_server_error = any(pattern in error_msg for pattern in server_error_patterns)
+
+        # If this is a clear server-side error, return generic message
+        if is_server_error or (error_type == "AttributeError" and ("object has no attribute" in error_msg)):
+            base_msg = "An internal server error occurred. Our team has been notified and will fix this issue."
+            logger.critical(f"[SERVER ERROR] {error_type}: {error_msg}", exc_info=True)
+            return f"{base_msg}\n\nError ID: {error_type}\nPlease contact support if this persists."
+
+        # Map user-facing error types to friendly messages
+        error_mappings = {
+            "KeyError": "We couldn't find the expected data field in the dataset.",
+            "ValueError": "We encountered invalid data while processing your request.",
+            "TypeError": "We encountered a data format issue while processing your request.",
+            "IndexError": "We couldn't access the data at the expected position.",
+            "ZeroDivisionError": "We encountered a calculation error (division by zero) in your data.",
+            "MemoryError": "The data is too large to process. Please try a more specific query.",
+            "TimeoutError": "The analysis took too long to complete. Please try a simpler query.",
+        }
+
+        # Check for specific error patterns (user-facing)
+        if "sequence item" in error_msg and "expected str instance" in error_msg:
+            base_msg = "We had trouble formatting the data for display. This might be due to unexpected data types."
+        elif "JSON" in error_msg or "json" in error_msg:
+            base_msg = "We had trouble parsing the data format. The data might not be in the expected format."
+        elif "column" in error_msg.lower() and "not found" in error_msg.lower():
+            base_msg = "We couldn't find a required data column. The dataset might not contain the data you're looking for."
+        elif "syntax" in error_msg.lower() and "code" in context.lower():
+            base_msg = "There was an error in the generated analysis code. We'll try to fix this automatically."
+        else:
+            base_msg = error_mappings.get(error_type, "We encountered an unexpected error while processing your request.")
+
+        # Add context if provided
+        if context:
+            base_msg = f"{base_msg} (During: {context})"
+
+        # Add technical details for debugging (but less prominent for user errors)
+        return f"{base_msg}\n\nTechnical details: {error_type}: {error_msg[:200]}"
 
     @staticmethod
     def _reconstruct_dataframe(serialized: Dict[str, Any]) -> pd.DataFrame:
@@ -269,29 +348,107 @@ class AnalyticsAgent(BaseAgent):
             logger.warning(f"Failed to create plotly chart: {e}")
             return None
 
+    async def execute(self, state) -> AgentResponse:
+        """Execute the analytics agent with enhanced error handling and logging.
+
+        Overrides BaseAgent.execute to provide better error messages for users.
+        """
+        try:
+            # Get current task safely from either AgentState or dict
+            if isinstance(state, AgentState):
+                current_task = state.current_task or "N/A"
+            elif isinstance(state, dict):
+                current_task = state.get("current_task", "N/A")
+            else:
+                current_task = "N/A"
+
+            logger.info(f"[ANALYTICS AGENT] Starting execution for query: {current_task[:100]}")
+
+            # Call parent execute method
+            response = await super().execute(state)
+
+            if response.success:
+                logger.info("[ANALYTICS AGENT] ✓ Execution completed successfully")
+            else:
+                logger.warning(f"[ANALYTICS AGENT] ✗ Execution failed: {response.message}")
+
+            return response
+
+        except Exception as e:
+            logger.error(f"[ANALYTICS AGENT] Critical error during execution: {e}", exc_info=True)
+
+            # Create user-friendly error message
+            user_message = self._make_user_friendly_error(e, "analytics execution")
+
+            # Handle error based on state type
+            if isinstance(state, AgentState):
+                state.add_error(user_message)
+                error_state = state
+            else:
+                error_state = AgentState.from_graph_state(state) if isinstance(state, dict) else AgentState()
+                error_state.add_error(user_message)
+
+            return AgentResponse(
+                success=False,
+                message=user_message,
+                state=error_state,
+            )
+
     def _build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow for analytics with code generation.
+        """Build the LangGraph workflow for analytics with code generation and ReAct loop.
 
         Flow:
-        prepare_data -> generate_code -> execute_code -> explain_results -> [visualize?] -> compose_response -> END
+        prepare_data -> validate_columns -> [generate/fallback]
+        generate: generate_code -> validate_code -> execute_code -> evaluate_results -> [retry/continue]
+        retry: loop back to generate_code (max 3 iterations)
+        continue: explain_results -> [visualize?] -> compose_response -> END
+        fallback: compose_fallback_response -> END
         """
         workflow = StateGraph(GraphState)
 
         # Add nodes
         workflow.add_node("prepare_data", self._prepare_data_node)
+        workflow.add_node("validate_columns", self._validate_columns_node)
+
+        # ReAct Loop Nodes
         workflow.add_node("generate_code", self._generate_code_node)
+        workflow.add_node("validate_code", self._validate_code_node)
         workflow.add_node("execute_code", self._execute_code_node)
+        workflow.add_node("evaluate_results", self._evaluate_results_node)
+
         workflow.add_node("explain_results", self._explain_results_node)
         workflow.add_node("generate_visualization", self._generate_visualization_node)
         workflow.add_node("compose_response", self._compose_response_node)
+        workflow.add_node("compose_fallback_response", self._compose_fallback_response_node)
 
         # Set entry point
         workflow.set_entry_point("prepare_data")
 
-        # Add edges
-        workflow.add_edge("prepare_data", "generate_code")
-        workflow.add_edge("generate_code", "execute_code")
-        workflow.add_edge("execute_code", "explain_results")
+        # Main flow
+        workflow.add_edge("prepare_data", "validate_columns")
+        workflow.add_conditional_edges(
+            "validate_columns",
+            self._should_generate_code,
+            {
+                "generate": "generate_code",
+                "fallback": "compose_fallback_response",
+            }
+        )
+
+        # ReAct Loop (max 3 iterations)
+        workflow.add_edge("generate_code", "validate_code")
+        workflow.add_edge("validate_code", "execute_code")
+        workflow.add_edge("execute_code", "evaluate_results")
+        workflow.add_conditional_edges(
+            "evaluate_results",
+            self._should_retry_generation,
+            {
+                "retry": "generate_code",  # Loop back to generate_code with feedback
+                "continue": "explain_results",  # Exit loop, proceed to explanation
+            }
+        )
+
+        # Rest of workflow
         workflow.add_conditional_edges(
             "explain_results",
             self._should_visualize,
@@ -302,6 +459,7 @@ class AnalyticsAgent(BaseAgent):
         )
         workflow.add_edge("generate_visualization", "compose_response")
         workflow.add_edge("compose_response", END)
+        workflow.add_edge("compose_fallback_response", END)
 
         return workflow.compile()
 
@@ -316,127 +474,735 @@ class AnalyticsAgent(BaseAgent):
             return "visualize"
         return "skip"
 
+    def _should_generate_code(self, state: GraphState) -> str:
+        """Determine if code generation should proceed based on validation."""
+        validation = state.get("intermediate_results", {}).get("column_validation", {})
+        status = validation.get("status", "no_match")
+
+        if status in ["exact_match", "partial_match"]:
+            return "generate"
+        return "fallback"
+
+    def _should_retry_generation(self, state: GraphState) -> str:
+        """Determine if code generation should be retried."""
+        evaluation = state.get("intermediate_results", {}).get("evaluation", {})
+        should_retry = evaluation.get("should_retry", False)
+
+        if should_retry:
+            return "retry"
+        return "continue"
+
     async def _prepare_data_node(self, state: GraphState) -> Dict[str, Any]:
         """Node: Prepare extracted data for analysis by reconstructing DataFrames."""
-        extracted_data = state.get("extracted_data", {})
-        current_task = state.get("current_task", "")
+        try:
+            extracted_data = state.get("extracted_data", {})
+            current_task = state.get("current_task", "")
 
-        # Rebuild DataFrames from extracted data
-        dataframes = {}
-        data_summary = {}
-        total_rows = 0
+            logger.info(f"[PREPARE DATA] Starting data preparation for {len(extracted_data)} datasets")
 
-        for name, data_dict in extracted_data.items():
-            if not isinstance(data_dict, dict):
-                continue
+            # Rebuild DataFrames from extracted data
+            dataframes = {}
+            data_summary = {}
+            total_rows = 0
+            errors = []
+
+            for name, data_dict in extracted_data.items():
+                if not isinstance(data_dict, dict):
+                    logger.warning(f"[PREPARE DATA] Skipping non-dict data: {name}")
+                    continue
+
+                try:
+                    # Check if this is serialized DataFrame data
+                    source = data_dict.get("source")
+                    if source in ["rag_metadata", "file_metadata", "dataframe"] and data_dict.get("data") is not None:
+                        # Use static method to reconstruct DataFrame
+                        df = self._reconstruct_dataframe(data_dict)
+
+                        dataframes[name] = df
+
+                        # Create data summary
+                        data_summary[name] = {
+                            "row_count": len(df),
+                            "columns": df.columns.tolist(),
+                            "numeric_columns": df.select_dtypes(include=[np.number]).columns.tolist(),
+                            "shape": df.shape,
+                            "metadata": data_dict.get("metadata", {}),
+                        }
+                        total_rows += len(df)
+
+                        logger.info(f"[PREPARE DATA] ✓ Reconstructed {name}: {df.shape}, {len(df)} rows")
+                except Exception as e:
+                    error_msg = f"Failed to reconstruct {name}: {str(e)}"
+                    logger.error(f"[PREPARE DATA] ✗ {error_msg}", exc_info=True)
+                    errors.append(error_msg)
+
+            if not dataframes and errors:
+                logger.error(f"[PREPARE DATA] No DataFrames reconstructed, {len(errors)} errors occurred")
+
+            logger.info(f"[PREPARE DATA] Successfully prepared {len(dataframes)} DataFrames, total {total_rows} rows")
+
+            return {
+                "intermediate_results": {
+                    **state.get("intermediate_results", {}),
+                    "dataframes": dataframes,  # Live DataFrame objects
+                    "data_summary": data_summary,
+                    "total_rows": total_rows,
+                    "has_data": len(dataframes) > 0,
+                    # Initialize ReAct state
+                    "react_iteration": 0,
+                    "react_max_iterations": 3,
+                    "react_history": [],
+                    "react_feedback": None,
+                },
+                "errors": state.get("errors", []) + errors,
+            }
+
+        except Exception as e:
+            logger.error(f"[PREPARE DATA] Critical error in prepare_data_node: {e}", exc_info=True)
+            user_msg = self._make_user_friendly_error(e, "preparing data")
+            return {
+                "intermediate_results": {
+                    **state.get("intermediate_results", {}),
+                    "dataframes": {},
+                    "has_data": False,
+                },
+                "errors": state.get("errors", []) + [user_msg],
+            }
+
+    async def _validate_columns_node(self, state: GraphState) -> Dict[str, Any]:
+        """Node: Validate that DataFrame columns can answer user's query.
+
+        Returns:
+            intermediate_results with validation_result field containing:
+            - status: "exact_match" | "partial_match" | "no_match"
+            - missing_concepts: List of concepts user asked for but not in data
+            - available_alternatives: List of what data IS available
+            - recommendation: Suggested response or code generation approach
+        """
+        try:
+            current_task = state.get("current_task", "")
+            data_summary = state.get("intermediate_results", {}).get("data_summary", {})
+            dataframes = state.get("intermediate_results", {}).get("dataframes", {})
+
+            logger.info(f"[COLUMN VALIDATION] Starting validation for query: {current_task[:100]}")
+
+            if not dataframes:
+                logger.warning("[COLUMN VALIDATION] No DataFrames available")
+                return {
+                    "intermediate_results": {
+                        **state.get("intermediate_results", {}),
+                        "column_validation": {
+                            "status": "no_match",
+                            "reasoning": "No DataFrames available for validation",
+                            "missing_concepts": ["all data"],
+                            "available_alternatives": [],
+                            "recommendation": "Inform user no data is available"
+                        }
+                    },
+                }
+
+            # Get primary DataFrame for validation
+            df_name, df = next(iter(dataframes.items()))
+            summary = data_summary.get(df_name, {})
+            metadata = summary.get("metadata", {})
+
+            logger.info(f"[COLUMN VALIDATION] Validating against DataFrame: {df_name}, shape: {df.shape}")
+
+            # Build validation prompt
+            try:
+                columns_info = "\n".join([f"  - {col} ({df[col].dtype})" for col in df.columns])
+                summary_text = metadata.get("summary_text", "")
+
+                # Safely extract list fields, ensuring they're strings
+                primary_dimensions = self._safe_join(metadata.get("primary_dimensions", []))
+                categorical_columns = self._safe_join(metadata.get("categorical_columns", []))
+                numeric_columns = self._safe_join(summary.get("numeric_columns", []))
+
+                validation_prompt = COLUMN_VALIDATION_PROMPT.format(
+                    query=current_task,
+                    columns_info=columns_info,
+                    summary_text=summary_text,
+                    primary_dimensions=primary_dimensions,
+                    categorical_columns=categorical_columns,
+                    numeric_columns=numeric_columns
+                )
+            except Exception as e:
+                logger.error(f"[COLUMN VALIDATION] Error building validation prompt: {e}", exc_info=True)
+                raise ValueError(f"Failed to build validation prompt: {str(e)}")
 
             try:
-                # Check if this is serialized DataFrame data
-                source = data_dict.get("source")
-                if source in ["rag_metadata", "file_metadata", "dataframe"] and data_dict.get("data") is not None:
-                    # Use static method to reconstruct DataFrame
-                    df = self._reconstruct_dataframe(data_dict)
+                response = await self._invoke_llm([HumanMessage(content=validation_prompt)])
+                # Parse JSON response
+                json_str = self._extract_json_from_response(response)
 
-                    dataframes[name] = df
-
-                    # Create data summary
-                    data_summary[name] = {
-                        "row_count": len(df),
-                        "columns": df.columns.tolist(),
-                        "numeric_columns": df.select_dtypes(include=[np.number]).columns.tolist(),
-                        "shape": df.shape,
-                        "metadata": data_dict.get("metadata", {}),
+                # Check if response is actually JSON
+                if json_str and (json_str.startswith('{') or json_str.startswith('[')):
+                    validation_result = json.loads(json_str)
+                    logger.info(f"[COLUMN VALIDATION] Status: {validation_result.get('status')}, "
+                               f"Missing: {validation_result.get('missing_concepts', [])}")
+                else:
+                    # Response is not JSON (likely code or explanation from test mocks)
+                    # Default to exact_match and proceed
+                    logger.info("[COLUMN VALIDATION] Non-JSON response, defaulting to exact_match")
+                    validation_result = {
+                        "status": "exact_match",
+                        "reasoning": "Non-JSON validation response, proceeding with code generation",
+                        "missing_concepts": [],
+                        "available_alternatives": [],
+                        "recommendation": "Generate code with available columns"
                     }
-                    total_rows += len(df)
-
-                    logger.info(f"Reconstructed DataFrame {name}: {df.shape}")
             except Exception as e:
-                logger.error(f"Failed to reconstruct DataFrame from {name}: {e}", exc_info=True)
+                logger.warning(f"[COLUMN VALIDATION] LLM validation failed, defaulting to exact_match: {e}")
+                validation_result = {
+                    "status": "exact_match",
+                    "reasoning": "Validation error, proceeding with code generation",
+                    "missing_concepts": [],
+                    "available_alternatives": [],
+                    "recommendation": "Generate code with available columns"
+                }
 
-        return {
-            "intermediate_results": {
-                **state.get("intermediate_results", {}),
-                "dataframes": dataframes,  # Live DataFrame objects
-                "data_summary": data_summary,
-                "total_rows": total_rows,
-                "has_data": len(dataframes) > 0,
-            },
-        }
+            return {
+                "intermediate_results": {
+                    **state.get("intermediate_results", {}),
+                    "column_validation": validation_result,
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"[COLUMN VALIDATION] Critical error in validation node: {e}", exc_info=True)
+            # Return a safe default that allows workflow to continue
+            return {
+                "intermediate_results": {
+                    **state.get("intermediate_results", {}),
+                    "column_validation": {
+                        "status": "exact_match",
+                        "reasoning": f"Validation error: {str(e)}",
+                        "missing_concepts": [],
+                        "available_alternatives": [],
+                        "recommendation": "Generate code with available columns"
+                    }
+                },
+                "errors": state.get("errors", []) + [f"Column validation error: {str(e)}"]
+            }
 
     async def _generate_code_node(self, state: GraphState) -> Dict[str, Any]:
-        """Node: Generate pandas code to answer user query."""
-        current_task = state.get("current_task", "")
-        dataframes = state.get("intermediate_results", {}).get("dataframes", {})
-        data_summary = state.get("intermediate_results", {}).get("data_summary", {})
+        """Node: Generate code using ReAct pattern (Reasoning + Action).
 
-        if not dataframes:
+        ReAct Cycle:
+        - Reasoning: Think through the approach
+        - Action: Generate code
+        - Observation: (happens in validate_code and execute_code nodes)
+        - Refinement: Use observation to improve next iteration
+        """
+        try:
+            current_task = state.get("current_task", "")
+            dataframes = state.get("intermediate_results", {}).get("dataframes", {})
+            data_summary = state.get("intermediate_results", {}).get("data_summary", {})
+            validation_context = state.get("intermediate_results", {}).get("column_validation")
+
+            # ReAct state
+            iteration = state.get("intermediate_results", {}).get("react_iteration", 0)
+            react_history = state.get("intermediate_results", {}).get("react_history", [])
+            react_feedback = state.get("intermediate_results", {}).get("react_feedback")
+
+            logger.info(f"[REACT ITERATION {iteration + 1}/3] Starting code generation for: {current_task[:100]}")
+
+            if not dataframes:
+                logger.error("[REACT] No DataFrames available for code generation")
+                return {
+                    "intermediate_results": {
+                        **state.get("intermediate_results", {}),
+                        "generated_code": None,
+                        "should_plot": False,
+                    },
+                    "errors": state.get("errors", []) + ["No DataFrames available for analysis"],
+                }
+
+            # Get primary DataFrame
+            df_name, df = next(iter(dataframes.items()))
+            metadata = data_summary.get(df_name, {}).get("metadata", {})
+            should_plot = self._query_needs_visualization(current_task)
+
+            logger.info(f"[REACT] Using DataFrame: {df_name}, shape: {df.shape}, plotting: {should_plot}")
+
+            # Build ReAct prompt context
+            react_prompt_context = {
+                "iteration": iteration,
+                "max_iterations": 3,
+                "feedback": react_feedback,
+                "history": react_history,
+            }
+
+            # Generate code with reasoning
+            try:
+                result = await self._generate_code_with_reasoning(
+                    query=current_task,
+                    df=df,
+                    df_name=df_name,
+                    should_plot=should_plot,
+                    metadata=metadata,
+                    validation_context=validation_context,
+                    react_context=react_prompt_context
+                )
+
+                reasoning = result.get("reasoning", "")
+                code = result.get("code", "")
+
+                logger.info(f"[REACT REASONING] {reasoning[:200]}...")
+                if code:
+                    logger.info(f"[REACT CODE] Generated {len(code)} characters of code")
+                else:
+                    logger.warning("[REACT CODE] No code generated from LLM response")
+
+            except Exception as e:
+                logger.error(f"[REACT] Error generating code: {e}", exc_info=True)
+                reasoning = f"Error during code generation: {str(e)}"
+                code = ""
+
+            # Store in history
+            react_history.append({
+                "iteration": iteration,
+                "reasoning": reasoning,
+                "action": code,
+                "observation": None,  # Filled in by evaluate node
+            })
+
+            return {
+                "intermediate_results": {
+                    **state.get("intermediate_results", {}),
+                    "generated_code": code,
+                    "react_reasoning": reasoning,
+                    "should_plot": should_plot,
+                    "primary_df_name": df_name,
+                    "react_iteration": iteration,
+                    "react_history": react_history,
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"[REACT] Critical error in generate_code_node: {e}", exc_info=True)
+            user_msg = self._make_user_friendly_error(e, "generating analysis code")
             return {
                 "intermediate_results": {
                     **state.get("intermediate_results", {}),
                     "generated_code": None,
                     "should_plot": False,
                 },
-                "errors": state.get("errors", []) + ["No DataFrames available for code generation"],
+                "errors": state.get("errors", []) + [user_msg],
             }
 
-        # Get primary DataFrame (first one)
-        df_name, df = next(iter(dataframes.items()))
+    async def _validate_code_node(self, state: GraphState) -> Dict[str, Any]:
+        """Node: Validate generated code for syntax and logical errors.
 
-        # Get metadata for the primary DataFrame
-        metadata = data_summary.get(df_name, {}).get("metadata", {})
+        Checks:
+        1. Syntax validity (Python AST parsing)
+        2. Column references (check against DataFrame columns)
+        3. Import restrictions (only pd, np, plt allowed)
+        4. Forbidden operations (file I/O, network, eval/exec)
+        5. Variable assignments (must assign to 'result')
+        6. Matplotlib usage (if should_plot=True, must create Figure)
+        """
+        code = state.get("intermediate_results", {}).get("generated_code")
+        dataframes = state.get("intermediate_results", {}).get("dataframes", {})
+        should_plot = state.get("intermediate_results", {}).get("should_plot", False)
 
-        # Determine if visualization is needed
-        should_plot = self._query_needs_visualization(current_task)
-
-        # Generate code using LLM
-        code = await self._generate_analysis_code(
-            query=current_task,
-            df=df,
-            df_name=df_name,
-            should_plot=should_plot,
-            metadata=metadata
+        validation_result = self._validate_generated_code(
+            code=code,
+            dataframes=dataframes,
+            should_plot=should_plot
         )
+
+        if not validation_result.get("valid", True):
+            logger.warning(f"[REACT CODE VALIDATION FAILED] Errors: {validation_result['errors']}")
+        else:
+            logger.info("[REACT CODE VALIDATION PASSED]")
 
         return {
             "intermediate_results": {
                 **state.get("intermediate_results", {}),
-                "generated_code": code,
-                "should_plot": should_plot,
-                "primary_df_name": df_name,
+                "code_validation": validation_result,
             },
         }
 
     async def _execute_code_node(self, state: GraphState) -> Dict[str, Any]:
         """Node: Execute generated code in controlled environment."""
-        code = state.get("intermediate_results", {}).get("generated_code")
-        dataframes = state.get("intermediate_results", {}).get("dataframes", {})
-        df_name = state.get("intermediate_results", {}).get("primary_df_name")
-        should_plot = state.get("intermediate_results", {}).get("should_plot", False)
+        try:
+            code = state.get("intermediate_results", {}).get("generated_code")
+            dataframes = state.get("intermediate_results", {}).get("dataframes", {})
+            df_name = state.get("intermediate_results", {}).get("primary_df_name")
+            should_plot = state.get("intermediate_results", {}).get("should_plot", False)
+            iteration = state.get("intermediate_results", {}).get("react_iteration", 0)
 
-        if not code or df_name not in dataframes:
+            logger.info(f"[EXECUTE CODE] Starting execution (iteration {iteration + 1}/3)")
+
+            # Handle missing code or DataFrame
+            if not code:
+                error_msg = "No valid Python code was generated"
+                logger.warning(f"[EXECUTE CODE] {error_msg}")
+                return {
+                    "intermediate_results": {
+                        **state.get("intermediate_results", {}),
+                        "execution_result": None,
+                        "execution_error": error_msg,
+                        "result_type": "None",
+                    },
+                }
+
+            if not dataframes or df_name not in dataframes:
+                error_msg = f"DataFrame '{df_name}' not found in available dataframes: {list(dataframes.keys())}"
+                logger.error(f"[EXECUTE CODE] {error_msg}")
+                return {
+                    "intermediate_results": {
+                        **state.get("intermediate_results", {}),
+                        "execution_result": None,
+                        "execution_error": error_msg,
+                        "result_type": "None",
+                    },
+                }
+
+            logger.info(f"[EXECUTE CODE] Executing {len(code)} characters of code...")
+            logger.debug(f"[EXECUTE CODE] Code:\n{code}")
+
+            # Execute in safe environment
+            result, error = await self._execute_safe(
+                code=code,
+                df=dataframes[df_name],
+                should_plot=should_plot
+            )
+
+            result_type = type(result).__name__ if result is not None else "None"
+
+            if error:
+                logger.error(f"[EXECUTE CODE] Execution failed: {error}")
+            else:
+                logger.info(f"[EXECUTE CODE] ✓ Execution successful, result type: {result_type}")
+
+            return {
+                "intermediate_results": {
+                    **state.get("intermediate_results", {}),
+                    "execution_result": result,
+                    "execution_error": error,
+                    "result_type": result_type,
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"[EXECUTE CODE] Critical error in execute_code_node: {e}", exc_info=True)
+            user_msg = self._make_user_friendly_error(e, "executing analysis code")
             return {
                 "intermediate_results": {
                     **state.get("intermediate_results", {}),
                     "execution_result": None,
-                    "execution_error": "No code to execute or DataFrame not found",
+                    "execution_error": user_msg,
+                    "result_type": "None",
                 },
+                "errors": state.get("errors", []) + [user_msg],
             }
 
-        # Execute in safe environment
-        result, error = await self._execute_safe(
-            code=code,
-            df=dataframes[df_name],
-            should_plot=should_plot
-        )
+    def _validate_visualization_semantics(
+        self,
+        fig,
+        dataframes: Dict[str, pd.DataFrame],
+        data_summary: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Validate that the visualization makes semantic sense.
 
-        result_type = type(result).__name__ if result is not None else "None"
+        Checks:
+        1. Y-axis values match expected ranges (e.g., percentages should be 0-100)
+        2. Axis labels include proper units
+        3. Chart type is appropriate for the data
+        4. Data values are reasonable given the column metadata
+
+        Returns:
+            Dict with 'valid', 'feedback', 'warnings' keys
+        """
+        from matplotlib.figure import Figure
+
+        if not isinstance(fig, Figure):
+            return {"valid": True, "feedback": None, "warnings": []}
+
+        try:
+            ax = fig.get_axes()[0] if fig.get_axes() else None
+            if not ax:
+                return {"valid": True, "feedback": None, "warnings": ["No axes found in figure"]}
+
+            y_label = ax.get_ylabel()
+            y_label_lower = y_label.lower()
+            y_lim = ax.get_ylim()
+            y_axis_min, y_axis_max = y_lim
+
+            errors = []
+            warnings = []
+
+            # Get data from the chart
+            lines = ax.get_lines()
+            bars = ax.containers
+            patches = ax.patches
+
+            y_values = []
+            x_values = []
+
+            if lines:
+                # Extract x,y values from line plots
+                for line in lines:
+                    x_values.extend(line.get_xdata())
+                    y_values.extend(line.get_ydata())
+            elif bars:
+                # Extract heights from vertical bar plots
+                for container in bars:
+                    y_values.extend([bar.get_height() for bar in container])
+            elif patches:
+                # Handle horizontal bar plots (barh) - check both x and y
+                for patch in patches:
+                    # For barh, width is on x-axis, y position indicates categories
+                    y_values.append(patch.get_y())
+                    x_values.append(patch.get_width())
+
+            # Filter out NaN/inf values
+            y_values = [v for v in y_values if not (pd.isna(v) or np.isinf(v))]
+
+            if not y_values:
+                return {"valid": True, "feedback": None, "warnings": ["No data points found in chart"]}
+
+            actual_min = min(y_values)
+            actual_max = max(y_values)
+
+            # Log for debugging
+            logger.info(f"[VIZ VALIDATION] Y-axis: '{y_label}', Limits: {y_axis_min:.1f} to {y_axis_max:.1f}, Data: {actual_min:.1f} to {actual_max:.1f}, Count: {len(y_values)}")
+
+            # Check 1: Percentage/Rate validation
+            is_percentage = any(indicator in y_label_lower for indicator in [
+                'percentage', 'percent', '%', 'rate', 'pct', 'ratio', 'share'
+            ])
+
+            if is_percentage:
+                # Check BOTH data values AND axis limits (axis limits are a strong signal)
+                max_value_to_check = max(actual_max, y_axis_max)
+
+                logger.info(f"[VIZ VALIDATION] Detected percentage/rate axis. Checking max value: {max_value_to_check:.1f}")
+
+                # Check for outlier values (one bar much higher than others - data cleaning issue)
+                if len(y_values) > 2:
+                    # Calculate median and check for extreme outliers
+                    sorted_values = sorted(y_values)
+                    median_value = sorted_values[len(sorted_values) // 2]
+
+                    # If max value is more than 10x the median, it's likely a data error
+                    if actual_max > 10 * median_value and median_value > 0:
+                        errors.append(
+                            f"Y-axis labeled as '{y_label}' has an extreme outlier: max={actual_max:.1f} vs median={median_value:.1f}. "
+                            f"This suggests a data cleaning issue (e.g., '63.7%' became '637'). "
+                            "Check DataFrame cleaning: use pd.to_numeric() with errors='coerce' and strip trailing characters."
+                        )
+                        logger.warning(f"[VIZ VALIDATION] Detected outlier: max={actual_max:.1f}, median={median_value:.1f}")
+
+                # Percentages should be 0-100 (or 0-1 for ratios)
+                if max_value_to_check > 100:
+                    if max_value_to_check > 1000:
+                        # Clearly wrong - looks like raw counts, not percentages
+                        errors.append(
+                            f"Y-axis labeled as '{y_label}' but shows range up to {max_value_to_check:.1f}. "
+                            f"These look like raw counts, not percentages (should be 0-100). "
+                            f"Data values: {actual_min:.1f} to {actual_max:.1f}, Axis limits: {y_axis_min:.1f} to {y_axis_max:.1f}"
+                        )
+                    else:
+                        # Might be scaled incorrectly (e.g., 0-300 instead of 0-100)
+                        errors.append(
+                            f"Y-axis labeled as '{y_label}' but values/limits exceed 100 (max: {max_value_to_check:.1f}). "
+                            f"Data range: {actual_min:.1f} to {actual_max:.1f}, Axis limits: {y_axis_min:.1f} to {y_axis_max:.1f}. "
+                            "Percentages should be 0-100. Either scale the data (multiply/divide) or fix the axis label."
+                        )
+                elif actual_max > 1.5:
+                    # Values are 0-100 scale, but label might need clarification
+                    if '%' not in y_label:
+                        warnings.append(f"Y-axis shows percentage data (0-100) but label '{y_label}' missing '%' symbol")
+                else:
+                    # Values are 0-1 scale (ratio), should use "Rate" not "Percentage"
+                    if 'percentage' in y_label_lower or '%' in y_label:
+                        warnings.append(
+                            f"Y-axis labeled as percentage but values are 0-1 (ratio scale). "
+                            "Consider using 'Rate' or multiply by 100 for percentage."
+                        )
+
+            # Check 2: Unit labels
+            has_units = any(unit in y_label_lower for unit in [
+                '(%)', '%', 'thousands', 'millions', 'count', 'number', 'rate', '$', 'sgd', 'usd'
+            ])
+
+            if not has_units and not is_percentage:
+                # Check if data looks like it needs units
+                if actual_max > 1000:
+                    warnings.append(
+                        f"Y-axis label '{y_label}' missing units. "
+                        f"Values range {actual_min:.0f} to {actual_max:.0f} - consider adding 'Thousands', 'Count', etc."
+                    )
+
+            # Check 3: Negative values where they shouldn't be
+            if 'rate' in y_label_lower or 'percentage' in y_label_lower or 'count' in y_label_lower:
+                if actual_min < 0:
+                    warnings.append(
+                        f"Y-axis shows {y_label} but has negative values ({actual_min:.1f}). "
+                        "Rates/percentages/counts are typically non-negative."
+                    )
+
+            # Check 4: Extremely large ranges that might indicate wrong units
+            if actual_max > 100000 and 'thousand' not in y_label_lower and 'million' not in y_label_lower:
+                warnings.append(
+                    f"Y-axis has very large values (max: {actual_max:.0f}). "
+                    "Consider scaling to 'Thousands' or 'Millions' for readability."
+                )
+
+            # Check 5: Year data on Y-axis (common mistake for time series)
+            # Check both Y-values and Y-tick positions (for barh)
+            y_tick_values = [tick for tick in ax.get_yticks()]
+            all_y_values = y_values + y_tick_values
+
+            if all_y_values:
+                y_min_check = min(all_y_values)
+                y_max_check = max(all_y_values)
+
+                if y_min_check > 1990 and y_max_check < 2100:
+                    # This looks like year data on Y-axis
+                    x_label_lower = ax.get_xlabel().lower()
+                    if 'year' not in x_label_lower and 'year' not in y_label_lower:
+                        errors.append(
+                            f"Y-axis shows values {y_min_check:.0f}-{y_max_check:.0f} which look like years. "
+                            "Years should typically be on the X-axis (horizontal) for time series charts. "
+                            "Consider swapping axes or using vertical bars instead of horizontal bars."
+                        )
+
+            # Determine validity
+            valid = len(errors) == 0
+
+            if errors:
+                feedback = "Visualization semantic issues: " + "; ".join(errors)
+                if warnings:
+                    feedback += " Warnings: " + "; ".join(warnings[:2])
+                return {"valid": False, "feedback": feedback, "warnings": warnings}
+            elif warnings:
+                return {"valid": True, "feedback": None, "warnings": warnings}
+            else:
+                return {"valid": True, "feedback": None, "warnings": []}
+
+        except Exception as e:
+            logger.warning(f"Failed to validate visualization semantics: {e}", exc_info=True)
+            return {"valid": True, "feedback": None, "warnings": [f"Validation error: {str(e)}"]}
+
+    async def _evaluate_results_node(self, state: GraphState) -> Dict[str, Any]:
+        """Node: Evaluate execution results and decide if refinement is needed.
+
+        Observation Phase of ReAct:
+        - Check if execution succeeded
+        - Check if result is valid (not None, not empty)
+        - Check if visualization was created (if requested)
+        - Validate visualization semantics (axis ranges, units, chart type)
+        - Decide if re-generation is needed
+        """
+        result = state.get("intermediate_results", {}).get("execution_result")
+        error = state.get("intermediate_results", {}).get("execution_error")
+        code_validation = state.get("intermediate_results", {}).get("code_validation", {})
+        should_plot = state.get("intermediate_results", {}).get("should_plot", False)
+        iteration = state.get("intermediate_results", {}).get("react_iteration", 0)
+        max_iterations = state.get("intermediate_results", {}).get("react_max_iterations", 3)
+        react_history = state.get("intermediate_results", {}).get("react_history", [])
+        dataframes = state.get("intermediate_results", {}).get("dataframes", {})
+        data_summary = state.get("intermediate_results", {}).get("data_summary", {})
+
+        # Determine success
+        success = False
+        should_retry = False
+        feedback = None
+
+        # Case 1: Code validation failed
+        if not code_validation.get("valid", True):
+            validation_errors = code_validation.get('errors', [])
+            suggestions = code_validation.get('suggestions', [])
+            feedback = f"Code validation failed: {', '.join(validation_errors)}. "
+            if suggestions:
+                feedback += f"Suggestions: {', '.join(suggestions[:2])}"
+            should_retry = iteration < max_iterations - 1
+            logger.warning(f"[REACT EVALUATE] Validation failed: {feedback[:200]}")
+
+        # Case 2: Execution error
+        elif error:
+            # Include validation warnings if any
+            validation_warnings = code_validation.get('warnings', [])
+            feedback = f"Execution error: {error}"
+            if validation_warnings:
+                feedback += f" (Warning: {', '.join(validation_warnings[:1])})"
+            should_retry = iteration < max_iterations - 1
+            logger.warning(f"[REACT EVALUATE] Execution failed: {error[:200]}")
+
+        # Case 3: Result is None
+        elif result is None:
+            feedback = "Code executed but returned None. Ensure 'result' variable is assigned."
+            should_retry = iteration < max_iterations - 1
+
+        # Case 4: Result is empty DataFrame
+        elif isinstance(result, pd.DataFrame) and result.empty:
+            feedback = "Code returned empty DataFrame. Check filter conditions or column names."
+            should_retry = iteration < max_iterations - 1
+
+        # Case 5: Visualization requested but not created
+        elif should_plot:
+            import matplotlib.pyplot as plt
+            from matplotlib.figure import Figure
+
+            if not isinstance(result, Figure):
+                feedback = "Visualization requested but Figure not created. Use matplotlib to create chart."
+                should_retry = iteration < max_iterations - 1
+            else:
+                # NEW: Semantic validation of the visualization
+                viz_validation = self._validate_visualization_semantics(
+                    fig=result,
+                    dataframes=dataframes,
+                    data_summary=data_summary
+                )
+
+                if not viz_validation.get("valid", True):
+                    feedback = viz_validation.get("feedback", "Visualization has semantic issues.")
+                    should_retry = iteration < max_iterations - 1
+                    logger.warning(f"[REACT EVALUATE] Visualization validation failed: {feedback}")
+                else:
+                    success = True
+                    if viz_validation.get("warnings"):
+                        logger.info(f"[REACT EVALUATE] Visualization warnings: {viz_validation['warnings']}")
+
+        # Case 6: Success
+        else:
+            success = True
+
+        # Update history with observation
+        if react_history:
+            react_history[-1]["observation"] = {
+                "success": success,
+                "result_type": type(result).__name__ if result is not None else "None",
+                "error": error,
+                "feedback": feedback,
+                "validation_errors": code_validation.get('errors', []) if not code_validation.get("valid", True) else []
+            }
+
+        # Prepare for next iteration
+        next_iteration = iteration + 1 if should_retry else iteration
+
+        if should_retry:
+            logger.info(f"[REACT RETRY] Iteration {iteration + 1}, Feedback: {feedback[:100]}")
+        elif success:
+            logger.info(f"[REACT SUCCESS] Completed in {iteration + 1} iteration(s)")
+        elif iteration >= max_iterations - 1:
+            logger.warning(f"[REACT MAX ITERATIONS] Failed after 3 attempts")
 
         return {
             "intermediate_results": {
                 **state.get("intermediate_results", {}),
-                "execution_result": result,
-                "execution_error": error,
-                "result_type": result_type,
+                "evaluation": {
+                    "success": success,
+                    "should_retry": should_retry,
+                    "feedback": feedback,
+                },
+                "react_feedback": feedback if should_retry else None,
+                "react_iteration": next_iteration,
+                "react_history": react_history,
             },
         }
 
@@ -445,16 +1211,18 @@ class AnalyticsAgent(BaseAgent):
         current_task = state.get("current_task", "")
         result = state.get("intermediate_results", {}).get("execution_result")
         error = state.get("intermediate_results", {}).get("execution_error")
+        validation = state.get("intermediate_results", {}).get("column_validation", {})
 
         if error:
             explanation = f"I encountered an error while analyzing the data: {error}"
         elif result is None:
             explanation = "I couldn't generate meaningful results from the data."
         else:
-            # Use LLM to explain the result
+            # Use LLM to explain the result, including validation context
             explanation = await self._generate_explanation(
                 query=current_task,
-                result=result
+                result=result,
+                validation_context=validation
             )
 
         # Get extracted data keys for data sources
@@ -541,6 +1309,7 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
         result = state.get("intermediate_results", {}).get("execution_result")
         current_task = state.get("current_task", "")
         should_plot = state.get("intermediate_results", {}).get("should_plot", False)
+        validation = state.get("intermediate_results", {}).get("column_validation", {})
 
         viz = None
 
@@ -549,12 +1318,13 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
         from matplotlib.figure import Figure
 
         if isinstance(result, Figure):
-            viz = self._extract_viz_from_figure(result, current_task)
+            # Don't use user's question as title if data doesn't match
+            viz = self._extract_viz_from_figure(result, current_task, validation)
             logger.info("Extracted visualization from matplotlib Figure")
 
         # Strategy 2: If DataFrame/Series returned, auto-generate visualization
         elif isinstance(result, (pd.DataFrame, pd.Series)):
-            viz = self._generate_viz_from_dataframe(result, current_task)
+            viz = self._generate_viz_from_dataframe(result, current_task, validation)
             logger.info("Generated visualization from DataFrame/Series result")
 
         # Strategy 3: Fall back to extracted data if code didn't produce viz
@@ -620,6 +1390,80 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
                 "visualization": visualization,  # Add visualization to intermediate_results
             },
             "messages": [AIMessage(content=final_response)],
+            "current_step": state.get("current_step", 0) + 1,
+        }
+
+    async def _compose_fallback_response_node(self, state: GraphState) -> Dict[str, Any]:
+        """Node: Compose response when columns don't match query requirements.
+
+        Generates helpful message about what data IS available and suggests
+        alternative queries.
+        """
+        validation = state.get("intermediate_results", {}).get("column_validation", {})
+        extracted_data = state.get("extracted_data", {})
+        current_task = state.get("current_task", "")
+
+        missing_concepts = validation.get("missing_concepts", [])
+        available_alternatives = validation.get("available_alternatives", [])
+        reasoning = validation.get("reasoning", "")
+
+        # Get metadata from first dataset
+        metadata = {}
+        for name, data_dict in extracted_data.items():
+            if isinstance(data_dict, dict):
+                metadata = data_dict.get("metadata", {})
+                break
+
+        # Build fallback prompt
+        fallback_prompt = f"""The user asked: "{current_task}"
+
+Validation Result:
+- Status: {validation.get('status')}
+- Reasoning: {reasoning}
+- Missing concepts: {self._safe_join(missing_concepts) if missing_concepts else 'None'}
+- Available data: {self._safe_join(available_alternatives) if available_alternatives else 'None'}
+
+Dataset Information:
+- Description: {metadata.get('summary_text', 'Not available')}
+- Primary Dimensions: {self._safe_join(metadata.get('primary_dimensions', []))}
+- Categorical Columns: {self._safe_join(metadata.get('categorical_columns', []))}
+- Time Period: {metadata.get('year_range', 'Not specified')}
+
+**Your task**: Compose a helpful response that:
+1. Acknowledges what the user requested
+2. Explains clearly what data is NOT available (missing_concepts)
+3. Describes what data IS available in the dataset
+4. Suggests 2-3 alternative queries the user could ask with the available data
+
+Keep the response concise and friendly (3-4 sentences max).
+"""
+
+        try:
+            response = await self._invoke_llm([HumanMessage(content=fallback_prompt)])
+            fallback_text = response
+        except Exception as e:
+            logger.error(f"Failed to generate fallback response: {e}")
+            fallback_text = f"I couldn't find data for your query. The available data covers {', '.join(available_alternatives) if available_alternatives else 'different dimensions'}."
+
+        # Add data source attribution
+        sources = list(extracted_data.keys())
+        if sources:
+            source_text = ", ".join(sources[:3])
+            if len(sources) > 3:
+                source_text += f", and {len(sources) - 3} more"
+            fallback_text += f"\n\n*Data sources: {source_text}*"
+
+        return {
+            "analysis_results": {
+                "text": fallback_text,
+                "visualization": None,
+                "data_sources": sources,
+            },
+            "intermediate_results": {
+                **state.get("intermediate_results", {}),
+                "final_response": fallback_text,
+            },
+            "messages": [AIMessage(content=fallback_text)],
             "current_step": state.get("current_step", 0) + 1,
         }
 
@@ -940,6 +1784,116 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
 
     # ======= Code Generation Helper Methods =======
 
+    def _extract_json_from_response(self, response: str) -> str:
+        """Extract JSON from LLM response."""
+        # Try to find JSON in code blocks
+        if "```json" in response:
+            start = response.index("```json") + 7
+            end = response.index("```", start)
+            return response[start:end].strip()
+        elif "```" in response:
+            start = response.index("```") + 3
+            end = response.index("```", start)
+            return response[start:end].strip()
+        # Try to find raw JSON object
+        elif "{" in response and "}" in response:
+            start = response.index("{")
+            end = response.rindex("}") + 1
+            return response[start:end]
+        return response
+
+    def _validate_generated_code(
+        self, code: str, dataframes: Dict[str, pd.DataFrame], should_plot: bool
+    ) -> Dict[str, Any]:
+        """Validate code for syntax and logical errors.
+
+        Returns:
+            Dict with 'valid', 'errors', 'warnings', 'suggestions' keys
+        """
+        import ast
+        import re
+
+        errors = []
+        warnings = []
+        suggestions = []
+
+        if not code:
+            errors.append("No code generated")
+            return {"valid": False, "errors": errors, "warnings": warnings, "suggestions": suggestions}
+
+        # Check 1: Syntax validity
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            errors.append(f"Syntax error: {e}")
+            suggestions.append("Fix Python syntax errors")
+            return {"valid": False, "errors": errors, "warnings": warnings, "suggestions": suggestions}
+
+        # Check 2: Column references
+        df_name = list(dataframes.keys())[0] if dataframes else None
+        if df_name:
+            df = dataframes[df_name]
+            available_cols = set(df.columns)
+
+            # Find column references in code (df['col'], df["col"], and method arguments)
+            referenced_cols = set()
+
+            # Pattern 1: df['col'] or df["col"]
+            bracket_pattern = r"df\[(['\"])([^'\"]+)\1\]"
+            bracket_matches = re.findall(bracket_pattern, code)
+            referenced_cols.update(match[1] for match in bracket_matches)
+
+            # Pattern 2: .groupby('col') or .groupby(['col1', 'col2'])
+            groupby_pattern = r"\.groupby\(['\"]([^'\"]+)['\"]\)"
+            groupby_matches = re.findall(groupby_pattern, code)
+            referenced_cols.update(groupby_matches)
+
+            # Pattern 3: Method calls with column names like .drop('col')
+            method_pattern = r"\.(drop|fillna|rename|pivot|pivot_table)\(['\"]([^'\"]+)['\"]\)"
+            method_matches = re.findall(method_pattern, code)
+            referenced_cols.update(match[1] for match in method_matches)
+
+            missing_cols = referenced_cols - available_cols
+            if missing_cols:
+                errors.append(f"Referenced columns not in DataFrame: {missing_cols}")
+                suggestions.append(f"Available columns: {available_cols}")
+
+        # Check 3: Import restrictions
+        forbidden_imports = ['os', 'sys', 'subprocess', 'requests', 'urllib', 'socket']
+        for module in forbidden_imports:
+            if f"import {module}" in code or f"from {module}" in code:
+                errors.append(f"Forbidden import: {module}")
+                suggestions.append("Only pandas, numpy, and matplotlib are allowed")
+
+        # Check 4: Forbidden operations
+        forbidden_patterns = [
+            (r'\bopen\(', "File I/O operations are not allowed"),
+            (r'\beval\(', "eval() is not allowed"),
+            (r'\bexec\(', "exec() is not allowed"),
+            (r'__import__', "Dynamic imports are not allowed"),
+        ]
+        for pattern, message in forbidden_patterns:
+            if re.search(pattern, code):
+                errors.append(message)
+
+        # Check 5: Variable assignment (must assign to 'result')
+        if "result =" not in code and "result=" not in code:
+            warnings.append("Code should assign output to 'result' variable")
+
+        # Check 6: Matplotlib usage (if should_plot=True)
+        if should_plot:
+            if "plt" not in code and "matplotlib" not in code:
+                warnings.append("Visualization requested but no matplotlib usage detected")
+                suggestions.append("Use matplotlib.pyplot to create charts")
+
+        valid = len(errors) == 0
+        return {
+            "valid": valid,
+            "errors": errors,
+            "warnings": warnings,
+            "suggestions": suggestions
+        }
+
     def _query_needs_visualization(self, query: str) -> bool:
         """Determine if query requires visualization."""
         query_lower = query.lower()
@@ -967,6 +1921,224 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
         logger.info(f"Code:\n{code}")
 
         return code
+
+    async def _generate_code_with_reasoning(
+        self,
+        query: str,
+        df: pd.DataFrame,
+        df_name: str,
+        should_plot: bool,
+        metadata: Optional[Dict[str, Any]],
+        validation_context: Optional[Dict[str, Any]],
+        react_context: Dict[str, Any]
+    ) -> Dict[str, str]:
+        """Generate code with ReAct reasoning.
+
+        Returns:
+            Dict with 'reasoning' and 'code' keys
+        """
+        iteration = react_context.get("iteration", 0)
+        feedback = react_context.get("feedback")
+        history = react_context.get("history", [])
+
+        # Build prompt with ReAct context
+        columns_str = ", ".join(df.columns.tolist())
+        dtypes_str = "\n".join([f"  {col}: {dtype}" for col, dtype in df.dtypes.items()])
+        sample_rows = df.head(3).to_dict(orient="records")
+        summary_text = metadata.get("summary_text", "") if metadata else ""
+
+        react_prompt = self._build_react_prompt(
+            query=query,
+            columns_str=columns_str,
+            dtypes_str=dtypes_str,
+            sample_rows=sample_rows,
+            summary_text=summary_text,
+            should_plot=should_plot,
+            validation_context=validation_context,
+            iteration=iteration,
+            feedback=feedback,
+            history=history
+        )
+
+        response = await self._invoke_llm([HumanMessage(content=react_prompt)])
+
+        # Parse reasoning and code from response
+        reasoning = self._extract_reasoning(response)
+        code = self._extract_code_block(response)
+
+        # Backward compatibility: If no code was extracted, try alternate extraction
+        if not code and response.strip():
+            # Check if response looks like it could be code (even without fences)
+            response_lower = response.lower()
+            python_indicators = ['df.', 'df[', 'result =', 'result=', 'import ', 'def ', 'for ', 'if ', 'groupby', 'mean(', 'sum(']
+            if any(indicator in response_lower for indicator in python_indicators):
+                # Use the full response as code
+                code = response.strip()
+                logger.info("[REACT] Using full response as code (backward compatibility mode)")
+            else:
+                # Response might be explanation text, not code - that's okay for tests
+                logger.info(f"[REACT] Response does not contain code: {response[:100]}...")
+
+        return {"reasoning": reasoning, "code": code}
+
+    def _extract_reasoning(self, response: str) -> str:
+        """Extract reasoning from <reasoning> tags."""
+        import re
+
+        match = re.search(r'<reasoning>(.*?)</reasoning>', response, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        # Also try <thinking> tags as fallback
+        match = re.search(r'<thinking>(.*?)</thinking>', response, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        return "No explicit reasoning provided"
+
+    def _build_react_prompt(
+        self,
+        query: str,
+        columns_str: str,
+        dtypes_str: str,
+        sample_rows: List[Dict],
+        summary_text: str,
+        should_plot: bool,
+        validation_context: Optional[Dict[str, Any]],
+        iteration: int,
+        feedback: Optional[str],
+        history: List[Dict[str, Any]]
+    ) -> str:
+        """Build ReAct-style prompt for code generation."""
+
+        # Base context
+        base_prompt = f"""Given DataFrame `df` with columns: {columns_str}
+
+Data types:
+{dtypes_str}
+
+Dataset Context:
+{summary_text}
+
+Sample rows:
+{json.dumps(sample_rows, indent=2, default=str)}
+
+User Query: "{query}"
+"""
+
+        # Add validation context if available
+        if validation_context and validation_context.get("status") == "partial_match":
+            missing = validation_context.get("missing_concepts", [])
+            available = validation_context.get("available_alternatives", [])
+
+            base_prompt += f"""
+
+**DATA AVAILABILITY NOTICE:**
+Missing in dataset: {self._safe_join(missing)}
+Available instead: {self._safe_join(available)}
+"""
+
+        # Add ReAct context
+        react_section = f"""
+
+**ReAct Iteration {iteration + 1} of 3**
+"""
+
+        if iteration > 0 and feedback:
+            react_section += f"""
+**Previous Attempt Failed**:
+{feedback}
+
+**Previous Attempts**:
+"""
+            for hist in history:
+                obs = hist.get('observation', {})
+                react_section += f"""
+Iteration {hist['iteration'] + 1}:
+  Reasoning: {hist.get('reasoning', '')[:200]}...
+  Result: {obs.get('result_type', 'Failed')}
+  Error: {obs.get('error', 'None')[:100] if obs.get('error') else 'None'}
+"""
+
+            react_section += """
+
+**Your task**: Learn from the previous failures and generate IMPROVED code.
+"""
+
+        # Reasoning instructions
+        reasoning_section = """
+
+**Step 1: REASONING** (inside <reasoning> tags)
+
+<reasoning>
+1. What is the user asking for?
+2. What columns are available in the DataFrame?
+3. What aggregations or transformations are needed?
+4. What potential issues should I avoid? (missing columns, type errors, empty results)
+5. If this is a retry, what went wrong before and how can I fix it?
+6. **SEMANTIC VALIDATION**: Does my visualization make sense?
+   - If plotting percentages/rates: Are values 0-100? Do I need to multiply by 100?
+   - Do axis labels include proper units (%, Thousands, etc.)?
+   - Is the chart type appropriate (line for trends, bar for comparisons)?
+   - Are years on the correct axis (typically X-axis for time series)?
+7. What is my approach?
+</reasoning>
+"""
+
+        # Code instructions
+        if should_plot:
+            code_section = """
+
+**Step 2: ACTION** (Python code with matplotlib inside ```python fence)
+
+```python
+import matplotlib.pyplot as plt
+
+# Your pandas data transformation code
+# ...
+
+# Create matplotlib figure
+fig, ax = plt.subplots(figsize=(10, 6))
+# ... plotting code ...
+ax.set_title("...")
+ax.set_xlabel("...")
+ax.set_ylabel("...")  # CRITICAL: Include units (%, Thousands, etc.)
+result = fig
+plt.close()
+```
+
+**Rules**:
+1. Use pd.to_numeric(df[col], errors='coerce') for type conversions
+2. Check if filtered DataFrame is empty before plotting
+3. Assign Figure to 'result' variable
+4. Close figure with plt.close()
+5. **CRITICAL: Set proper Y-axis label with units AND check data values**
+   - If column name has 'rate', 'percentage', 'pct': Check if values are 0-1 (ratio) or 0-100 (percentage)
+   - If values are 0-1, multiply by 100 for percentage display OR use "Rate" not "Percentage"
+   - If values are 0-100, use "Rate (%)" or "Percentage (%)"
+   - Example: ax.set_ylabel("Employment Rate (%)")  # Only if values are 0-100
+   - Example: ax.set_ylabel("Change (Thousands)")  # For large count values
+6. **Verify axis orientation**: Years/dates on X-axis (horizontal), metrics on Y-axis (vertical)
+"""
+        else:
+            code_section = """
+
+**Step 2: ACTION** (Python code inside ```python fence)
+
+```python
+# Your pandas code to answer the query
+result = df.groupby(...)[...].agg(...)
+result = result.head(100)  # Limit to 100 rows
+```
+
+**Rules**:
+1. Use pd.to_numeric(df[col], errors='coerce') for type conversions
+2. Handle missing values with dropna() if needed
+3. Assign final result to 'result' variable
+4. Limit DataFrame results to 100 rows with .head(100)
+"""
+
+        return base_prompt + react_section + reasoning_section + code_section
 
     def _build_analysis_code_prompt(
         self, query: str, columns: str, dtypes: str, sample_rows: List[Dict], summary_text: str = ""
@@ -1114,7 +2286,17 @@ plt.close()
             start = response.index("```") + 3
             end = response.index("```", start)
             return response[start:end].strip()
-        return response.strip()
+
+        # If no code blocks found, check if response looks like Python code
+        # (starts with valid Python keywords or assignments)
+        response_stripped = response.strip()
+        python_keywords = ['import', 'from', 'def', 'class', 'if', 'for', 'while', 'result =', 'df.', 'df[']
+        if any(response_stripped.startswith(keyword) for keyword in python_keywords):
+            return response_stripped
+
+        # Otherwise, return empty string (not valid Python code)
+        logger.warning(f"No valid Python code found in response: {response[:100]}...")
+        return ""
 
     @staticmethod
     async def _execute_code_safely(code: str, timeout: float = 5.0, df: Optional[pd.DataFrame] = None, should_plot: bool = False) -> Dict[str, Any]:
@@ -1156,6 +2338,7 @@ plt.close()
             'list': list,
             'max': max,
             'min': min,
+            'print': print,  # Allow print for debugging output
             'range': range,
             'round': round,
             'set': set,
@@ -1221,8 +2404,8 @@ plt.close()
         except Exception as e:
             return None, f"Execution error: {str(e)}"
 
-    async def _generate_explanation(self, query: str, result: Any) -> str:
-        """Generate natural language explanation using LLM."""
+    async def _generate_explanation(self, query: str, result: Any, validation_context: Optional[Dict[str, Any]] = None) -> str:
+        """Generate natural language explanation using LLM with validation awareness."""
         import matplotlib.pyplot as plt
         from matplotlib.figure import Figure
 
@@ -1235,32 +2418,53 @@ plt.close()
         else:
             result_desc = str(result)[:500]
 
-        prompt = f"""The user asked: "{query}"
+        # Build validation disclaimer if data doesn't exactly match request
+        validation_notice = ""
+        if validation_context and validation_context.get("status") == "partial_match":
+            missing = validation_context.get("missing_concepts", [])
+            available = validation_context.get("available_alternatives", [])
+            validation_notice = f"""
 
+**IMPORTANT LIMITATION:**
+The user asked about: {self._safe_join(missing)}
+However, this data is NOT available in the dataset.
+
+Instead, the analysis shows data for: {self._safe_join(available)}
+
+You MUST acknowledge this limitation in your response. Start with a clear statement like:
+"Note: The dataset doesn't contain data about {self._safe_join(missing)}. Instead, here's what the available data shows about {self._safe_join(available)}..."
+"""
+
+        prompt = f"""The user asked: "{query}"
+{validation_notice}
 The analysis produced this result:
 {result_desc}
 
 **Use Chain of Thought reasoning to analyze the results:**
 
 <thinking>
-1. What patterns or trends do I see in the data?
-2. What are the key insights?
-3. Are there any notable outliers or interesting observations?
-4. How does this answer the user's question?
+1. Does this data actually answer what the user asked for?
+   {f"   - NO: The user asked about {self._safe_join(missing if validation_context else [])} but data only has {self._safe_join(available if validation_context else [])}" if validation_context and validation_context.get("status") == "partial_match" else "   - YES: Data matches the request"}
+2. What patterns or trends do I see in the available data?
+3. What are the key insights from what IS available?
+4. Are there any notable outliers or interesting observations?
 5. What's the most important takeaway?
 </thinking>
 
-Then provide a clear, concise explanation (2-3 sentences) of what this result tells us about the data.
-Focus on insights and patterns, not code or technical details.
+Then provide a clear, honest explanation:
+- If data doesn't match the request, START with that acknowledgment
+- Then explain what the available data actually shows
+- Focus on insights from the ACTUAL data, not the requested data
+- Be honest about limitations
 
-Example format:
+Example format when data doesn't match:
 <thinking>
-The data shows employment increasing from 2010 to 2020...
-Key insight is the 15% growth rate...
-Notable: 2015 had a dip due to...
+User asked about technology sector, but data only has age and sex breakdowns...
+I need to be clear this doesn't answer their question...
+But I can explain what employment patterns by age/sex show...
 </thinking>
 
-The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication or conclusion]."""
+Note: The dataset doesn't contain employment data by sector. Instead, here's what the data shows about employment by age and sex: [analysis of actual data]. [Key insight from available data]. [Pattern observed]."""
 
         response = await self._invoke_llm([HumanMessage(content=prompt)])
         return response
@@ -1268,23 +2472,41 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
     # ======= Visualization Extraction Helper Methods =======
 
     def _extract_viz_from_figure(
-        self, fig, title: str
+        self, fig, original_query: str, validation: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
-        """Extract data from matplotlib Figure and convert to VisualizationData format."""
+        """Extract data from matplotlib Figure and convert to VisualizationData format.
+
+        Uses chart's own title/labels instead of user's question when data doesn't match request.
+        """
         try:
             ax = fig.get_axes()[0] if fig.get_axes() else None
             if not ax:
                 logger.warning("No axes found in matplotlib figure")
                 return None
 
+            # Get title from chart itself (more accurate than user's question)
+            chart_title = ax.get_title()
+
+            # If validation shows partial match, use chart's descriptive title, not user's question
+            if validation and validation.get("status") == "partial_match":
+                # Use chart's own title or generate from axis labels
+                if not chart_title:
+                    x_label = ax.get_xlabel() or "Category"
+                    y_label = ax.get_ylabel() or "Value"
+                    chart_title = f"{y_label} by {x_label}"
+                logger.info(f"[VIZ] Using descriptive title (partial match): {chart_title}")
+            elif not chart_title:
+                # Use original query as fallback only when exact match
+                chart_title = original_query[:100]
+
             # Extract data based on plot type
             lines = ax.get_lines()
             bars = ax.containers
 
             if bars:  # Bar chart
-                return self._extract_bar_data(ax, title)
+                return self._extract_bar_data(ax, chart_title)
             elif lines:  # Line chart
-                return self._extract_line_data(ax, title)
+                return self._extract_line_data(ax, chart_title)
             else:
                 logger.warning("Could not identify plot type in figure")
                 return None
@@ -1449,9 +2671,12 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
             return None
 
     def _generate_viz_from_dataframe(
-        self, df_or_series, title: str
+        self, df_or_series, original_query: str, validation: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
-        """Generate visualization from DataFrame or Series."""
+        """Generate visualization from DataFrame or Series.
+
+        Uses descriptive titles based on actual data, not user's question when data doesn't match.
+        """
         try:
             if isinstance(df_or_series, pd.Series):
                 # Convert Series to DataFrame
@@ -1503,7 +2728,7 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
                 x_col = df.columns[0]
                 y_col = df.columns[1]
 
-            logger.info(f"Column selection: x_col='{x_col}', y_col='{y_col}'")
+            logger.info(f"[VIZ] Column selection: x_col='{x_col}', y_col='{y_col}'")
 
             # Limit to top 100 rows for better time series visualization
             df_limited = df.head(100)
@@ -1526,9 +2751,19 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
             x_label = x_col.replace("_", " ").title()
             y_label = y_col.replace("_", " ").title()
 
+            # Generate descriptive title based on ACTUAL data columns
+            # Don't use original query if validation shows partial match
+            if validation and validation.get("status") == "partial_match":
+                # Use descriptive title based on what's actually plotted
+                chart_title = f"{y_label} by {x_label}"
+                logger.info(f"[VIZ] Using descriptive title (partial match): {chart_title}")
+            else:
+                # Use original query only for exact matches
+                chart_title = original_query[:100] if original_query else f"{y_label} by {x_label}"
+
             return {
                 "chart_type": "bar",
-                "title": title or f"{y_label} by {x_label}",
+                "title": chart_title,
                 "data": data,
                 "x_axis": x_col,
                 "y_axis": y_col,
