@@ -1,10 +1,13 @@
 """Chat API routes with simple context append for natural conversation."""
 
+import asyncio
+import json
 import logging
 import uuid
-from typing import Dict, List
+from typing import AsyncGenerator, Dict, List
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.models import (
     ChatRequest,
@@ -20,6 +23,136 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 # In-memory conversation storage (use Redis/DB in production)
 conversations: Dict[str, List[ChatMessage]] = {}
+
+
+@router.post("/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Stream chat response using Server-Sent Events (SSE) for real-time feedback."""
+    try:
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        logger.info(f"[SSE] Starting stream for conversation: {conversation_id}")
+
+        if not request.message:
+            raise HTTPException(status_code=400, detail="Message is required")
+
+        async def event_generator() -> AsyncGenerator[str, None]:
+            """Generate Server-Sent Events."""
+            try:
+                # Immediate acknowledgment
+                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'running', 'message': 'Validating query...'})}\n\n"
+                await asyncio.sleep(0.05)
+
+                # CONTEXT APPEND: Check if this is a clarification response
+                combined_message = request.message
+
+                if conversation_id in conversations and len(conversations[conversation_id]) >= 2:
+                    # Get last assistant message and the user message before it
+                    last_assistant_msg = None
+                    original_user_msg = None
+
+                    for i in range(len(conversations[conversation_id]) - 1, -1, -1):
+                        msg = conversations[conversation_id][i]
+                        if msg.role == "assistant" and last_assistant_msg is None:
+                            last_assistant_msg = msg.content.lower()
+                        elif msg.role == "user" and last_assistant_msg is not None and original_user_msg is None:
+                            original_user_msg = msg.content
+                            break
+
+                    # Check if assistant was asking for clarification
+                    if last_assistant_msg and original_user_msg:
+                        clarification_keywords = [
+                            "which year", "specify year", "year range", "what year",
+                            "available data", "please specify", "interested in", "provide",
+                            "dimension", "age group", "sex/gender", "industry", "qualification"
+                        ]
+                        is_asking_for_clarification = any(kw in last_assistant_msg for kw in clarification_keywords)
+
+                        if is_asking_for_clarification:
+                            # Combine messages for full context!
+                            combined_message = f"{original_user_msg} {request.message}"
+                            logger.info(f"🔗 [SSE] Context Append Detected!")
+                            logger.info(f"   Original query: '{original_user_msg}'")
+                            logger.info(f"   User response: '{request.message}'")
+                            logger.info(f"   Combined query: '{combined_message}'")
+
+                # Execute workflow with combined message
+                orchestrator = get_orchestrator()
+                result = await orchestrator.execute(message=combined_message, chat_history=[])
+
+                # Check validation
+                validation = result.get("query_validation", {})
+                if validation and not validation.get("valid", True):
+                    # Validation failed - stream error
+                    error_msg = validation.get("reason", "Query validation failed")
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'complete'})}\n\n"
+
+                    for char in error_msg:
+                        yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
+                        await asyncio.sleep(0.008)
+
+                    full_message = error_msg
+                else:
+                    # Success - show progression
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'complete'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'coordinator', 'status': 'running'})}\n\n"
+                    await asyncio.sleep(0.05)
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'coordinator', 'status': 'complete'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'extraction', 'status': 'running'})}\n\n"
+                    await asyncio.sleep(0.05)
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'extraction', 'status': 'complete'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'analytics', 'status': 'running'})}\n\n"
+                    await asyncio.sleep(0.05)
+                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'analytics', 'status': 'complete'})}\n\n"
+
+                    # Stream response
+                    full_message = result.get("message", "Analysis complete")
+                    for char in full_message:
+                        yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
+                        await asyncio.sleep(0.008)
+
+                    # Send visualization
+                    if request.include_visualization and result.get("visualization"):
+                        yield f"data: {json.dumps({'type': 'visualization', 'visualization': result['visualization']})}\n\n"
+
+                # Store conversation
+                if conversation_id not in conversations:
+                    conversations[conversation_id] = []
+                conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
+                conversations[conversation_id].append(ChatMessage(role="assistant", content=full_message))
+
+                # Clear conversation after successful query (keep only for validation failures)
+                if not (validation and not validation.get("valid", True)):
+                    logger.info(f"🧹 [SSE] Clearing conversation context after successful query")
+                    del conversations[conversation_id]
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+            except Exception as e:
+                logger.error(f"[SSE] Stream error: {str(e)}", exc_info=True)
+
+                # Sanitize error message for user
+                user_error = "I encountered an issue while processing your request."
+                if "invalid literal" in str(e).lower() or "cannot convert" in str(e).lower():
+                    user_error = "I found some data quality issues in the dataset. The data contains invalid values that prevent analysis. Please try a different query or time period."
+                elif "no data" in str(e).lower() or "empty" in str(e).lower():
+                    user_error = "No data was found matching your query criteria. Please try different parameters or check if data exists for this period."
+                elif "timeout" in str(e).lower():
+                    user_error = "The query took too long to process. Please try a more specific query with fewer years or dimensions."
+                else:
+                    user_error = f"I encountered an error while processing your request. Please try rephrasing your query or contact support if the issue persists."
+
+                yield f"data: {json.dumps({'type': 'error', 'error': user_error, 'technical_details': str(e)})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+        )
+
+    except Exception as e:
+        logger.error(f"[SSE] Failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/", response_model=ChatResponse)
@@ -86,15 +219,23 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
         logger.info(f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}")
 
-        # Check if verification failed (topic invalid) BEFORE storing conversation
+        # Check if verification failed (topic invalid)
         validation = result.get("query_validation", {})
         if validation and not validation.get("valid", True):
-            # Clear conversation history to prevent context pollution
-            if conversation_id in conversations:
-                logger.info(f"🗑️ Clearing conversation history for {conversation_id} due to validation failure")
-                del conversations[conversation_id]
+            # KEEP conversation history for context append on follow-up
+            # Store the validation error so user can respond
+            if conversation_id not in conversations:
+                conversations[conversation_id] = []
 
-            # Return validation error without storing messages
+            conversations[conversation_id].append(
+                ChatMessage(role="user", content=request.message)
+            )
+            conversations[conversation_id].append(
+                ChatMessage(role="assistant", content=validation.get("reason", "Query validation failed"))
+            )
+            logger.info(f"💬 Keeping conversation history for clarification follow-up")
+
+            # Return validation error
             return ChatResponse(
                 message=validation.get("reason", "Query validation failed"),
                 conversation_id=conversation_id,
@@ -107,7 +248,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 }
             )
 
-        # Store conversation AFTER validation check (only if query is valid)
+        # Store conversation for successful query
         if conversation_id not in conversations:
             conversations[conversation_id] = []
 
@@ -117,6 +258,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
         conversations[conversation_id].append(
             ChatMessage(role="assistant", content=result["message"])
         )
+
+        # Clear conversation after successful query (so next query is independent)
+        logger.info(f"🧹 Clearing conversation context after successful query")
+        del conversations[conversation_id]
 
         if result.get("error") and not result.get("message"):
             raise HTTPException(status_code=500, detail=result["error"])
@@ -153,7 +298,17 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise
     except Exception as e:
         logger.error(f"Chat error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+
+        # Sanitize error message for user
+        user_message = "I encountered an issue while processing your request."
+        if "invalid literal" in str(e).lower() or "cannot convert" in str(e).lower():
+            user_message = "The dataset contains invalid values that prevent analysis. Please try a different query or time period."
+        elif "no data" in str(e).lower() or "empty" in str(e).lower():
+            user_message = "No data was found matching your query. Please try different parameters."
+        elif "timeout" in str(e).lower():
+            user_message = "The query took too long to process. Please try a more specific query."
+
+        raise HTTPException(status_code=500, detail=user_message)
 
 
 @router.get("/agents")

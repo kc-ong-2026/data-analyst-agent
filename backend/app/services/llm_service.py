@@ -1,5 +1,6 @@
 """Model-agnostic LLM service supporting multiple providers."""
 
+import hashlib
 import logging
 from typing import Dict, List, Optional
 
@@ -141,6 +142,12 @@ class EmbeddingService:
         self.model = model
         self._embeddings: Optional[Embeddings] = None
 
+        # LRU cache for embeddings (SHA256 hash -> embedding vector)
+        self._embedding_cache: Dict[str, List[float]] = {}
+        self._cache_size = 1000
+        self._cache_hits = 0
+        self._cache_misses = 0
+
     def _get_embeddings(self) -> Embeddings:
         """Get embeddings instance based on provider configuration."""
         if self._embeddings is not None:
@@ -187,12 +194,77 @@ class EmbeddingService:
         """Embed a list of texts."""
         return await self.embeddings.aembed_documents(texts)
 
-    async def embed_query(self, query: str) -> List[float]:
-        """Embed a single query."""
-        logger.info(f"Embedding query: {self.provider}/{self.model or 'default'}, query_length={len(query)}")
+    async def embed_query(self, query: str, use_cache: bool = True) -> List[float]:
+        """Embed a single query with LRU caching.
+
+        Args:
+            query: The query text to embed.
+            use_cache: Whether to use the cache (default: True).
+
+        Returns:
+            Embedding vector as list of floats.
+        """
+        # Normalize query for cache key (lowercase + strip whitespace)
+        normalized_query = query.lower().strip()
+        query_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
+
+        # Check cache
+        if use_cache and query_hash in self._embedding_cache:
+            self._cache_hits += 1
+            total = self._cache_hits + self._cache_misses
+            hit_rate = self._cache_hits / total if total > 0 else 0
+            logger.info(
+                f"[EMBEDDING CACHE HIT] hit_rate={hit_rate:.1%} "
+                f"({self._cache_hits}/{total}), query_length={len(query)}"
+            )
+            return self._embedding_cache[query_hash]
+
+        # Cache miss - generate embedding
+        self._cache_misses += 1
+        total = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total if total > 0 else 0
+        logger.info(
+            f"[EMBEDDING CACHE MISS] hit_rate={hit_rate:.1%} "
+            f"({self._cache_hits}/{total}), embedding query: {self.provider}/{self.model or 'default'}, query_length={len(query)}"
+        )
+
         result = await self.embeddings.aembed_query(query)
         logger.info(f"Embedding generated: dimensions={len(result)}")
+
+        # LRU eviction (simple FIFO when full)
+        if use_cache:
+            if len(self._embedding_cache) >= self._cache_size:
+                # Remove oldest entry (first key in dict)
+                oldest_key = next(iter(self._embedding_cache))
+                del self._embedding_cache[oldest_key]
+                logger.debug(f"[EMBEDDING CACHE] Evicted oldest entry, cache size={len(self._embedding_cache)}")
+
+            # Add to cache
+            self._embedding_cache[query_hash] = result
+
         return result
+
+    def get_cache_stats(self) -> Dict[str, any]:
+        """Get embedding cache statistics.
+
+        Returns:
+            Dict with cache hit rate, size, and counts.
+        """
+        total = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total if total > 0 else 0
+        return {
+            "hit_rate": hit_rate,
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "total_queries": total,
+            "cache_size": len(self._embedding_cache),
+            "cache_max_size": self._cache_size,
+        }
+
+    def clear_cache(self) -> None:
+        """Clear the embedding cache."""
+        self._embedding_cache.clear()
+        logger.info(f"[EMBEDDING CACHE] Cache cleared")
 
 
 def get_llm_service(

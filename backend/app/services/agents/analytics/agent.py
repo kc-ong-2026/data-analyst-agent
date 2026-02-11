@@ -118,6 +118,16 @@ class AnalyticsAgent(BaseAgent):
                     # Reconstruct DataFrame
                     df = pd.DataFrame(data_dict["data"])
 
+                    # COMPREHENSIVE DATA CLEANING: Clean ALL string columns
+                    # Remove footnote markers (like 'a', 'b', 'c') from all text data
+                    for col in df.columns:
+                        if df[col].dtype == 'object':
+                            # Clean trailing letters from numeric-like strings
+                            # This handles cases like '2007a', '123b', etc.
+                            df[col] = df[col].astype(str).str.replace(r'^(\d+)[a-zA-Z]+$', r'\1', regex=True)
+                            # Also clean leading/trailing whitespace
+                            df[col] = df[col].str.strip()
+
                     # Apply dtype conversions if available
                     dtypes = data_dict.get("dtypes", {})
                     for col, dtype_str in dtypes.items():
@@ -132,6 +142,14 @@ class AnalyticsAgent(BaseAgent):
                                     df[col] = pd.to_datetime(df[col], errors='coerce')
                             except Exception as e:
                                 logger.warning(f"Could not convert column {col} to {dtype_str}: {e}")
+
+                    # AUTO-DETECT and clean common year columns
+                    year_cols = [c for c in df.columns if 'year' in c.lower()]
+                    for col in year_cols:
+                        if df[col].dtype == 'object':
+                            # Convert year columns to numeric, coercing errors to NaN
+                            df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+                            logger.info(f"Auto-cleaned year column: {col}")
 
                     dataframes[name] = df
 
@@ -381,8 +399,9 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
             else:
                 explanation = "I couldn't find specific data for your query. Please try rephrasing your question."
 
-        # Strip JSON code blocks to ensure visualization field is single source of truth
-        cleaned_analysis = self._strip_json_code_blocks(explanation)
+        # Strip thinking tags and JSON code blocks for clean user-facing response
+        cleaned_analysis = self._strip_thinking_tags(explanation)
+        cleaned_analysis = self._strip_json_code_blocks(cleaned_analysis)
 
         # Clean up the analysis text
         final_response = cleaned_analysis.strip()
@@ -692,6 +711,22 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
 
         return viz
 
+    def _strip_thinking_tags(self, text: str) -> str:
+        """Remove <thinking> tags from LLM responses.
+
+        The thinking tags are useful for chain-of-thought reasoning internally,
+        but should not be shown to end users.
+        """
+        import re
+
+        # Remove <thinking>...</thinking> blocks (including multiline)
+        text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+        # Clean up extra whitespace left behind
+        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple blank lines → double newline
+
+        return text.strip()
+
     def _strip_json_code_blocks(self, text: str) -> str:
         """Remove JSON code blocks from analysis text to prevent frontend confusion.
 
@@ -784,6 +819,9 @@ Rules:
 5. Do NOT read files or fetch data - use only the provided `df`
 6. If the result is a scalar value, return it as-is
 7. If the result is a DataFrame or Series, limit to top 100 rows with .head(100) for better visualization
+8. **IMPORTANT: Use pd.to_numeric(df[col], errors='coerce') instead of .astype(int) for type conversion**
+   - Example: pd.to_numeric(df['year'], errors='coerce').between(2000, 2020)
+   - This safely handles bad data values that can't be converted
 
 Example:
 <thinking>
@@ -852,6 +890,9 @@ Rules:
     - Use "Employment Change (Thousands)" only if data is actually in thousands
     - Check if values are 0-100 (percentage) vs larger numbers (thousands)
     - Example: ax.set_ylabel("Employment Rate (%)", fontsize=12)
+11. **IMPORTANT: Use pd.to_numeric(df[col], errors='coerce') instead of .astype(int) for type conversion**
+    - Example: pd.to_numeric(df['year'], errors='coerce').between(2000, 2020)
+    - This safely handles bad data values that can't be converted
 
 Example:
 <thinking>
@@ -1100,10 +1141,21 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
             x_label = ax.get_xlabel() or "Period"
             y_label = ax.get_ylabel() or "Value"
 
-            # Get x labels if available
+            # Get x labels if available (with safe conversion)
             x_labels = [label.get_text() for label in ax.get_xticklabels()]
             if not x_labels or all(not label for label in x_labels):
-                x_labels = [str(int(x) if isinstance(x, (int, float)) and x == int(x) else x) for x in x_data]
+                # Safely convert x_data to labels, handling bad values
+                safe_labels = []
+                for x in x_data:
+                    try:
+                        if isinstance(x, (int, float)) and not pd.isna(x) and x == int(x):
+                            safe_labels.append(str(int(x)))
+                        else:
+                            safe_labels.append(str(x))
+                    except (ValueError, TypeError):
+                        # Handle any conversion errors gracefully
+                        safe_labels.append(str(x))
+                x_labels = safe_labels
 
             # SMART AXIS SWAP DETECTION
             temporal_keywords = ['year', 'date', 'month', 'quarter', 'time']

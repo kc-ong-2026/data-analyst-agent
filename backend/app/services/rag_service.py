@@ -1,8 +1,12 @@
 """RAG service with folder-based hybrid vector + BM25 search, RRF fusion, and cross-encoder reranking."""
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import logging
+import pickle
 import re
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from rank_bm25 import BM25Okapi
@@ -42,7 +46,15 @@ class RAGService:
         self.similarity_threshold = rag_config["similarity_threshold"]
         self.use_reranking = rag_config.get("use_reranking", True)
         self.use_bm25 = rag_config.get("use_bm25", True)
-        self._bm25_cache = {}  # Cache BM25 indexes per category
+        self._bm25_cache = {}  # In-memory cache: {cache_key: (BM25Okapi, rows)}
+
+        # BM25 disk cache directory
+        self._bm25_cache_dir = Path("./data/bm25_cache")
+        self._bm25_cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"[BM25 CACHE] Cache directory: {self._bm25_cache_dir}")
+
+        # Thread pool for CPU-bound operations (reranking)
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="rag-rerank")
 
     async def retrieve(
         self,
@@ -51,6 +63,7 @@ class RAGService:
         category_filter: Optional[str] = None,
         year_filter: Optional[Dict[str, int]] = None,
         use_reranking: Optional[bool] = None,
+        query_embedding: Optional[List[float]] = None,
     ) -> FolderRetrievalResult:
         """Perform hybrid retrieval across folder metadata tables with optional reranking.
 
@@ -60,6 +73,7 @@ class RAGService:
             category_filter: Optional category to filter by (employment, hours_worked, income).
             year_filter: Optional year range dict {"start": int, "end": int}.
             use_reranking: Override config setting for reranking (default: use config value).
+            query_embedding: Pre-computed query embedding (optional, will compute if not provided).
 
         Returns:
             FolderRetrievalResult with metadata and table schemas.
@@ -67,8 +81,12 @@ class RAGService:
         top_k = top_k or self.hybrid_top_k
         use_reranking = use_reranking if use_reranking is not None else self.use_reranking
 
-        embedding_service = get_embedding_service()
-        query_embedding = await embedding_service.embed_query(query)
+        # Use pre-computed embedding if provided, otherwise compute it
+        if query_embedding is None:
+            embedding_service = get_embedding_service()
+            query_embedding = await embedding_service.embed_query(query)
+        else:
+            logger.info(f"[PERF] Using pre-computed query embedding, skipping re-embedding")
 
         async with get_db() as session:
             all_metadata_results: List[MetadataResult] = []
@@ -285,51 +303,78 @@ class RAGService:
         query: str,
         year_filter: Optional[Dict[str, int]],
     ) -> List[MetadataResult]:
-        """Perform BM25 search on folder metadata.
+        """Perform BM25 search on folder metadata with disk persistence.
 
         Replaces PostgreSQL full-text search with proper BM25 ranking.
+        Caches BM25 indexes to disk for faster startup.
         """
-        # Fetch all metadata documents for this category
-        where_clauses = ["m.summary_text IS NOT NULL"]
-        params = {}
-
-        if year_filter:
-            if year_filter.get("start"):
-                where_clauses.append("(m.year_range->>'max')::int >= :year_start")
-                params["year_start"] = year_filter["start"]
-            if year_filter.get("end"):
-                where_clauses.append("(m.year_range->>'min')::int <= :year_end")
-                params["year_end"] = year_filter["end"]
-
-        where_sql = " AND ".join(where_clauses)
-
-        sql = text(f"""
-            SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
-                   m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
-                   m.row_count, m.year_range, m.summary_text
-            FROM {table_name} m
-            WHERE {where_sql}
-        """)
-
-        result = await session.execute(sql, params)
-        rows = result.fetchall()
-
-        if not rows:
-            return []
-
-        # Build BM25 index (or use cached)
+        # Build cache key
         cache_key = f"{category}_{table_name}"
-        if cache_key not in self._bm25_cache:
-            corpus = [self._tokenize(row[11]) for row in rows]  # summary_text
-            self._bm25_cache[cache_key] = (BM25Okapi(corpus), rows)
-        else:
-            bm25, cached_rows = self._bm25_cache[cache_key]
-            # Verify cache is still valid (row count matches)
-            if len(cached_rows) != len(rows):
-                corpus = [self._tokenize(row[11]) for row in rows]
-                self._bm25_cache[cache_key] = (BM25Okapi(corpus), rows)
+        cache_file = self._bm25_cache_dir / f"{cache_key}.pkl"
 
-        bm25, rows = self._bm25_cache[cache_key]
+        # Try to load from in-memory cache first
+        if cache_key in self._bm25_cache:
+            logger.debug(f"[BM25 CACHE] In-memory HIT: {cache_key}")
+            bm25, rows = self._bm25_cache[cache_key]
+        # Try to load from disk if not in memory
+        elif cache_file.exists():
+            try:
+                with open(cache_file, 'rb') as f:
+                    bm25, rows = pickle.load(f)
+                self._bm25_cache[cache_key] = (bm25, rows)
+                logger.info(f"[BM25 CACHE] Loaded from disk: {cache_key} ({len(rows)} docs)")
+            except Exception as e:
+                logger.warning(f"[BM25 CACHE] Failed to load from disk: {cache_key}, error: {e}")
+                bm25, rows = None, None
+        else:
+            bm25, rows = None, None
+
+        # If not cached, build new index
+        if bm25 is None or rows is None:
+            # Fetch metadata documents (with LIMIT to avoid loading entire table)
+            where_clauses = ["m.summary_text IS NOT NULL"]
+            params = {"limit": 1000}  # Limit corpus size for performance
+
+            if year_filter:
+                if year_filter.get("start"):
+                    where_clauses.append("(m.year_range->>'max')::int >= :year_start")
+                    params["year_start"] = year_filter["start"]
+                if year_filter.get("end"):
+                    where_clauses.append("(m.year_range->>'min')::int <= :year_end")
+                    params["year_end"] = year_filter["end"]
+
+            where_sql = " AND ".join(where_clauses)
+
+            sql = text(f"""
+                SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
+                       m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
+                       m.row_count, m.year_range, m.summary_text
+                FROM {table_name} m
+                WHERE {where_sql}
+                LIMIT :limit
+            """)
+
+            result = await session.execute(sql, params)
+            rows = result.fetchall()
+
+            if not rows:
+                return []
+
+            # Build BM25 index
+            logger.info(f"[BM25 CACHE] Building index for {cache_key} ({len(rows)} docs)")
+            corpus = [self._tokenize(row[11]) for row in rows]  # summary_text
+            bm25 = BM25Okapi(corpus)
+
+            # Cache in memory
+            self._bm25_cache[cache_key] = (bm25, rows)
+
+            # Persist to disk
+            try:
+                with open(cache_file, 'wb') as f:
+                    pickle.dump((bm25, rows), f)
+                logger.info(f"[BM25 CACHE] Persisted to disk: {cache_key}")
+            except Exception as e:
+                logger.warning(f"[BM25 CACHE] Failed to persist to disk: {cache_key}, error: {e}")
 
         # Score documents with BM25
         query_tokens = self._tokenize(query)
@@ -364,6 +409,48 @@ class RAGService:
 
         return results
 
+    async def warmup_caches(self) -> None:
+        """Pre-load BM25 indexes from disk on startup.
+
+        This method should be called during application startup to pre-warm
+        the BM25 cache, avoiding cold-start latency on first request.
+        """
+        logger.info("[BM25 CACHE] Warming up BM25 caches from disk...")
+        loaded_count = 0
+
+        for cache_file in self._bm25_cache_dir.glob("*.pkl"):
+            cache_key = cache_file.stem
+            try:
+                with open(cache_file, 'rb') as f:
+                    bm25, rows = pickle.load(f)
+                self._bm25_cache[cache_key] = (bm25, rows)
+                loaded_count += 1
+                logger.info(f"[BM25 CACHE] Loaded {cache_key} ({len(rows)} docs)")
+            except Exception as e:
+                logger.warning(f"[BM25 CACHE] Failed to load {cache_key}: {e}")
+
+        logger.info(f"[BM25 CACHE] Warmup complete: {loaded_count} indexes loaded")
+
+    def clear_bm25_cache(self) -> None:
+        """Clear both in-memory and disk BM25 caches.
+
+        Call this after data ingestion to ensure fresh indexes.
+        """
+        logger.info("[BM25 CACHE] Clearing BM25 caches (memory + disk)")
+
+        # Clear in-memory cache
+        self._bm25_cache.clear()
+
+        # Clear disk cache
+        for cache_file in self._bm25_cache_dir.glob("*.pkl"):
+            try:
+                cache_file.unlink()
+                logger.debug(f"[BM25 CACHE] Deleted {cache_file.name}")
+            except Exception as e:
+                logger.warning(f"[BM25 CACHE] Failed to delete {cache_file.name}: {e}")
+
+        logger.info("[BM25 CACHE] Cache cleared")
+
     def _tokenize(self, text: str) -> List[str]:
         """Tokenize text for BM25 (simple whitespace + lowercase)."""
         if not text:
@@ -375,7 +462,7 @@ class RAGService:
         query: str,
         metadata_results: List[MetadataResult],
     ) -> List[MetadataResult]:
-        """Rerank metadata results using cross-encoder.
+        """Rerank metadata results using cross-encoder (async, non-blocking).
 
         Args:
             query: User query
@@ -393,13 +480,20 @@ class RAGService:
             doc = f"{result.description}\n{result.summary_text}"
             documents.append(doc)
 
-        # Rerank with cross-encoder
+        # Offload CPU-bound reranking to thread pool (non-blocking)
         from app.services.reranker import get_reranker
         reranker = get_reranker()
-        ranked_indices_scores = reranker.rerank(
-            query=query,
-            documents=documents,
-            top_k=len(documents),  # Rerank all
+
+        loop = asyncio.get_event_loop()
+        logger.debug(f"[RERANK] Starting async reranking for {len(documents)} documents")
+
+        # Run reranking in thread pool to avoid blocking event loop
+        ranked_indices_scores = await loop.run_in_executor(
+            self._executor,
+            reranker.rerank,
+            query,
+            documents,
+            len(documents),  # Rerank all
         )
 
         # Reorder results and update scores
@@ -411,7 +505,7 @@ class RAGService:
             reranked_results.append(result)
 
         logger.info(
-            f"Reranked {len(reranked_results)} results. "
+            f"[RERANK] Completed async reranking: {len(reranked_results)} results. "
             f"Top score: {reranked_results[0].score:.3f}, "
             f"Bottom score: {reranked_results[-1].score:.3f}"
         )

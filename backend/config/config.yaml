@@ -32,7 +32,11 @@ llm:
       temperature: 0.7
       max_tokens: 4096
 
-      # Analytics Agent specific configuration
+      # Agent-specific model configurations
+      verification_model: claude-3-haiku-20240307  # Fast model for simple validation (10x faster)
+      verification_temperature: 0.0  # Deterministic for validation
+      verification_max_tokens: 1024  # Short responses for validation
+
       analytics_model: claude-opus-4-6  # Use Opus 4.6 for analytics
       analytics_temperature: 0.0  # Lower temp for more deterministic code generation
       analytics_max_tokens: 8192  # More tokens for chain of thought reasoning
@@ -73,8 +77,8 @@ vector_store:
 
 # Database Configuration
 database:
-  pool_size: 5
-  max_overflow: 10
+  pool_size: 20      # Increased from 5 to support concurrent RAG operations
+  max_overflow: 30   # Increased from 10 to prevent connection exhaustion
   echo: false
 
 # RAG Configuration

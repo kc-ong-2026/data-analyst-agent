@@ -1,10 +1,13 @@
 """Chat API routes with LangGraph checkpoint support."""
 
+import asyncio
+import json
 import logging
 import uuid
-from typing import Dict, List
+from typing import AsyncGenerator, Dict, List
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.models import (
     ChatRequest,
@@ -20,6 +23,154 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 # In-memory conversation storage (use Redis/DB in production)
 conversations: Dict[str, List[ChatMessage]] = {}
+
+
+@router.post("/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Stream chat response using Server-Sent Events (SSE).
+
+    Uses LangGraph's astream_events API to stream tokens and agent updates in real-time.
+    This provides immediate feedback to users instead of waiting for complete response.
+
+    SSE Event Types:
+    - start: Initial acknowledgment with conversation_id
+    - agent: Agent status update (which agent is running)
+    - token: LLM token as it's generated
+    - data: Structured data (extracted_data, analysis_results)
+    - visualization: Visualization data when available
+    - done: Final response complete
+    - error: Error occurred
+    """
+    try:
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        logger.info(f"[SSE] Starting stream for conversation: {conversation_id}")
+
+        if not request.message:
+            raise HTTPException(status_code=400, detail="Message is required")
+
+        async def event_generator() -> AsyncGenerator[str, None]:
+            """Generate Server-Sent Events for streaming response."""
+            try:
+                # Send immediate acknowledgment
+                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation_id})}\n\n"
+
+                # Get chat history
+                chat_history = []
+                if conversation_id in conversations:
+                    chat_history = [
+                        {"role": msg.role, "content": msg.content}
+                        for msg in conversations[conversation_id]
+                    ]
+
+                # LangGraph config
+                config = {
+                    "configurable": {
+                        "thread_id": conversation_id
+                    }
+                }
+
+                # Initialize orchestrator
+                orchestrator = get_orchestrator()
+
+                # Prepare initial state
+                from app.services.agents.base_agent import AgentState
+                state = AgentState()
+                state.current_task = request.message
+                for msg_dict in chat_history:
+                    state.add_message(msg_dict["role"], msg_dict["content"])
+                state.add_message("user", request.message)
+                initial_graph_state = state.to_graph_state()
+
+                # Track which agents have started
+                current_agent = None
+                message_buffer = []
+                final_state = None
+
+                # Stream events from LangGraph
+                async for event in orchestrator._orchestration_graph.astream_events(
+                    initial_graph_state,
+                    config=config,
+                    version="v2",
+                ):
+                    event_type = event.get("event")
+                    event_name = event.get("name", "")
+                    event_data = event.get("data", {})
+
+                    # Agent node started
+                    if event_type == "on_chain_start":
+                        if "verification" in event_name.lower():
+                            current_agent = "verification"
+                            yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'running', 'message': 'Validating query...'})}\n\n"
+                        elif "coordinator" in event_name.lower():
+                            current_agent = "coordinator"
+                            yield f"data: {json.dumps({'type': 'agent', 'agent': 'coordinator', 'status': 'running', 'message': 'Planning research workflow...'})}\n\n"
+                        elif "extraction" in event_name.lower():
+                            current_agent = "extraction"
+                            yield f"data: {json.dumps({'type': 'agent', 'agent': 'extraction', 'status': 'running', 'message': 'Retrieving relevant data...'})}\n\n"
+                        elif "analytics" in event_name.lower():
+                            current_agent = "analytics"
+                            yield f"data: {json.dumps({'type': 'agent', 'agent': 'analytics', 'status': 'running', 'message': 'Analyzing data and generating insights...'})}\n\n"
+
+                    # LLM streaming tokens
+                    elif event_type == "on_chat_model_stream":
+                        chunk = event_data.get("chunk")
+                        if hasattr(chunk, "content") and chunk.content:
+                            content = chunk.content
+                            message_buffer.append(content)
+                            yield f"data: {json.dumps({'type': 'token', 'content': content, 'agent': current_agent})}\n\n"
+
+                    # Agent node completed
+                    elif event_type == "on_chain_end":
+                        if any(name in event_name.lower() for name in ["verification", "coordinator", "extraction", "analytics"]):
+                            agent_name = next((name for name in ["verification", "coordinator", "extraction", "analytics"] if name in event_name.lower()), None)
+                            if agent_name:
+                                yield f"data: {json.dumps({'type': 'agent', 'agent': agent_name, 'status': 'complete'})}\n\n"
+
+                                # Send intermediate data if available
+                                output = event_data.get("output", {})
+                                if agent_name == "extraction" and output.get("extracted_data"):
+                                    yield f"data: {json.dumps({'type': 'data', 'data_type': 'extracted', 'summary': 'Data extracted successfully'})}\n\n"
+                                elif agent_name == "analytics" and output.get("analysis_results"):
+                                    final_state = output
+
+                # Reconstruct final response
+                if final_state:
+                    # Send visualization if available
+                    if request.include_visualization and final_state.get("analysis_results", {}).get("visualization"):
+                        viz = final_state["analysis_results"]["visualization"]
+                        yield f"data: {json.dumps({'type': 'visualization', 'visualization': viz})}\n\n"
+
+                    # Send complete message
+                    full_message = "".join(message_buffer) if message_buffer else final_state.get("analysis_results", {}).get("explanation", "Analysis complete")
+
+                    # Store conversation
+                    if conversation_id not in conversations:
+                        conversations[conversation_id] = []
+                    conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
+                    conversations[conversation_id].append(ChatMessage(role="assistant", content=full_message))
+
+                # Send done event
+                yield f"data: {json.dumps({'type': 'done', 'message': 'Stream complete'})}\n\n"
+
+            except Exception as e:
+                logger.error(f"[SSE] Stream error: {str(e)}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[SSE] Failed to initialize stream: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/", response_model=ChatResponse)

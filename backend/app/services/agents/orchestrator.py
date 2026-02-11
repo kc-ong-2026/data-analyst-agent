@@ -44,7 +44,7 @@ class AgentOrchestrator:
         self.llm_model = llm_model
         self.max_iterations = max_iterations
 
-        # Load analytics-specific model from config
+        # Load agent-specific model configurations from config
         from app.config import config as app_config
 
         # Get default provider if not specified
@@ -52,6 +52,18 @@ class AgentOrchestrator:
         default_provider = yaml_llm_config.get("default_provider", "anthropic")
         effective_provider = llm_provider or default_provider
 
+        # Verification agent configuration (fast model for simple validation)
+        verification_model = None
+        verification_temperature = None
+        verification_max_tokens = None
+        if effective_provider == "anthropic":
+            anthropic_config = yaml_llm_config.get("providers", {}).get("anthropic", {})
+            verification_model = anthropic_config.get("verification_model", "claude-3-haiku-20240307")
+            verification_temperature = anthropic_config.get("verification_temperature", 0.0)
+            verification_max_tokens = anthropic_config.get("verification_max_tokens", 1024)
+            logger.info(f"✓ Verification Agent using: {verification_model} (temp={verification_temperature}, max_tokens={verification_max_tokens}, Fast validation)")
+
+        # Analytics agent configuration
         analytics_model = None
         analytics_temperature = None
         analytics_max_tokens = None
@@ -70,8 +82,10 @@ class AgentOrchestrator:
         # Initialize agents
         self.agents: Dict[AgentRole, BaseAgent] = {
             AgentRole.VERIFICATION: QueryVerificationAgent(
-                llm_provider=llm_provider,
-                llm_model=llm_model,
+                llm_provider=llm_provider or effective_provider,
+                llm_model=verification_model or llm_model,
+                temperature=verification_temperature,
+                max_tokens=verification_max_tokens,
             ),
             AgentRole.COORDINATOR: DataCoordinatorAgent(
                 llm_provider=llm_provider,

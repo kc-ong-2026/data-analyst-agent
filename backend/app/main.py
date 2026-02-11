@@ -77,6 +77,45 @@ async def _check_and_ingest() -> None:
         logger.warning(f"Auto-ingestion check failed: {e}", exc_info=False)
 
 
+async def _warmup_models():
+    """Pre-warm ML models and caches on startup to reduce first-request latency."""
+    try:
+        logger.info("🔥 Pre-warming ML models and caches...")
+
+        # 1. Pre-load embedding model (warmup query)
+        try:
+            from app.services.llm_service import get_embedding_service
+            embedding_service = get_embedding_service()
+            await embedding_service.embed_query("warmup query to initialize model")
+            logger.info("✓ Embedding model loaded and ready")
+        except Exception as e:
+            logger.warning(f"Failed to warmup embedding model: {e}")
+
+        # 2. Pre-load reranker model
+        try:
+            from app.services.reranker import get_reranker
+            reranker = get_reranker()
+            # Warmup with dummy query
+            reranker.rerank("warmup", ["document 1", "document 2"], 2)
+            logger.info("✓ Reranker model loaded and ready")
+        except Exception as e:
+            logger.warning(f"Failed to warmup reranker: {e}")
+
+        # 3. Load BM25 indexes from disk
+        try:
+            from app.services.rag_service import RAGService
+            rag_service = RAGService()
+            await rag_service.warmup_caches()
+            logger.info("✓ BM25 indexes loaded from disk")
+        except Exception as e:
+            logger.warning(f"Failed to warmup BM25 caches: {e}")
+
+        logger.info("🚀 Model warmup complete - system ready for fast responses!")
+
+    except Exception as e:
+        logger.warning(f"Model warmup failed: {e}", exc_info=False)
+
+
 async def _cleanup_expired_checkpoints():
     """Background task to clean up expired checkpoints every 10 minutes."""
     from app.services.checkpoint_service import get_checkpoint_service
@@ -100,6 +139,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # Auto-ingest if database is empty
     await _check_and_ingest()
+
+    # Pre-warm ML models and caches
+    await _warmup_models()
 
     # Log LangSmith tracing status
     langsmith_config = config.get_langsmith_config()
