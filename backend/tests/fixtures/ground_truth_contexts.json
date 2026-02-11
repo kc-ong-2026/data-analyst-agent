@@ -1,0 +1,68 @@
+{
+  "ret_001": {
+    "query": "What was the average income in Singapore in 2020?",
+    "expected_contexts": [
+      {
+        "dataset_name": "income_gross_monthly_income_from_employment_of_full_ti_a88c7dab",
+        "description": "Gross Monthly Income From Employment of Full Time Employed Residents",
+        "relevance_score": 0.95,
+        "content": "This dataset contains gross monthly income data from employment for full-time employed Singapore residents. Data is broken down by year and income percentiles, covering 1996 onwards. Source: Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Residents.csv"
+      }
+    ],
+    "required_keywords": ["income", "2020", "average"],
+    "minimum_precision_at_1": 0.90
+  },
+  "ret_002": {
+    "query": "Show me employment rates for 2019 and 2020",
+    "expected_contexts": [
+      {
+        "dataset_name": "employment_resident_employment_rate_by_age_and_sex",
+        "description": "Resident Employment Rate By Age and Sex",
+        "relevance_score": 0.90,
+        "content": "Employment rate statistics for Singapore residents, covering employment rates across different age groups and sex. Contains 330 rows and covers years 1991 to 2023. Source: Resident_Employment_Rate_By_Age_and_Sex​​.csv"
+      }
+    ],
+    "required_keywords": ["employment", "rate", "2019", "2020"],
+    "minimum_precision_at_2": 0.85
+  },
+  "ret_003": {
+    "query": "Compare median income between males and females in 2021",
+    "expected_contexts": [
+      {
+        "dataset_name": "income_gross_monthly_income_from_employment_of_full_ti_f9938fba",
+        "description": "Gross Monthly Income From Employment of Full Time Employed Singapore Citizens",
+        "relevance_score": 0.92,
+        "content": "Income statistics for full-time employed Singapore citizens, including income data disaggregated by year and percentile. Useful for analyzing income trends and distributions. Source: Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Singapore_Citizens.csv"
+      }
+    ],
+    "required_keywords": ["income", "median", "2021", "male", "female"],
+    "minimum_precision_at_1": 0.88
+  },
+  "ret_004": {
+    "query": "What are the working hours trends from 2018 to 2022?",
+    "expected_contexts": [
+      {
+        "dataset_name": "hours_worked_annual_average_hours_worked_per_employed__42da8e75",
+        "description": "Annual Average Hours Worked Per Employed Person Aged Fifteen And Over By Industry",
+        "relevance_score": 0.85,
+        "content": "This dataset contains annual average hours worked per employed person aged fifteen and over, broken down by industry. Covers the period from 2017 to 2022. Useful for analyzing working hours trends over time and across different industries. Source: annual_average_Hours_Worked_Per_Employed_Person_Aged_Fifteen_And_Over_By_Industry.csv"
+      }
+    ],
+    "required_keywords": ["hours", "worked", "2018", "2019", "2020", "2021", "2022"],
+    "minimum_precision_at_5": 0.80,
+    "minimum_recall": 0.90
+  },
+  "ret_005": {
+    "query": "Show unemployment rate by age group in 2020",
+    "expected_contexts": [
+      {
+        "dataset_name": "employment_resident_employment_rate_by_age_and_sex",
+        "description": "Resident Employment Rate By Age and Sex",
+        "relevance_score": 0.88,
+        "content": "Employment rate statistics for Singapore residents, covering employment rates across different age groups and sex. Contains 330 rows and covers years 1991 to 2023. Can be used to derive unemployment trends by analyzing employment rate changes. Source: Resident_Employment_Rate_By_Age_and_Sex​​.csv"
+      }
+    ],
+    "required_keywords": ["unemployment", "employment", "age", "2020"],
+    "minimum_precision_at_1": 0.85
+  }
+}

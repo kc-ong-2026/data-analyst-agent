@@ -50,6 +50,225 @@ class AnalyticsAgent(BaseAgent):
     def system_prompt(self) -> str:
         return SYSTEM_PROMPT
 
+    @staticmethod
+    def _reconstruct_dataframe(serialized: Dict[str, Any]) -> pd.DataFrame:
+        """Reconstruct a single DataFrame from serialized data.
+
+        Args:
+            serialized: Dictionary containing dataset_name, columns, dtypes, data, source
+
+        Returns:
+            Reconstructed pandas DataFrame
+        """
+        # Reconstruct DataFrame from data
+        df = pd.DataFrame(serialized.get("data", []))
+
+        if df.empty:
+            # Return empty DataFrame with correct columns
+            return pd.DataFrame(columns=serialized.get("columns", []))
+
+        # COMPREHENSIVE DATA CLEANING: Clean ALL string columns
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                # Clean trailing letters from numeric-like strings
+                df[col] = df[col].astype(str).str.replace(r'^(\d+)[a-zA-Z]+$', r'\1', regex=True)
+                # Clean leading/trailing whitespace
+                df[col] = df[col].str.strip()
+
+        # Apply dtype conversions if available
+        dtypes = serialized.get("dtypes", {})
+        for col, dtype_str in dtypes.items():
+            if col in df.columns:
+                try:
+                    # Use exact dtype string if possible, otherwise infer
+                    if dtype_str.lower() == "int64":
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.int64)
+                    elif dtype_str.lower() == "int32":
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.int32)
+                    elif "int" in dtype_str.lower():
+                        # Use nullable Int64 for other integer types
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+                    elif dtype_str.lower() == "float64":
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.float64)
+                    elif dtype_str.lower() == "float32":
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.float32)
+                    elif "float" in dtype_str.lower():
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    elif "datetime" in dtype_str.lower():
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                except Exception as e:
+                    logger.warning(f"Could not convert column {col} to {dtype_str}: {e}")
+
+        # AUTO-DETECT and clean year columns (only if not already converted above)
+        year_cols = [c for c in df.columns if 'year' in c.lower()]
+        for col in year_cols:
+            # Skip if dtype was already set from dtypes dict
+            if col not in dtypes and df[col].dtype == 'object':
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+
+        return df
+
+    @staticmethod
+    def _reconstruct_dataframes(serialized_list: List[Dict[str, Any]]) -> Dict[str, pd.DataFrame]:
+        """Reconstruct multiple DataFrames from a list of serialized data.
+
+        Args:
+            serialized_list: List of serialized DataFrame dictionaries
+
+        Returns:
+            Dictionary mapping dataset names to DataFrames
+        """
+        dataframes = {}
+        for serialized in serialized_list:
+            dataset_name = serialized.get("dataset_name")
+            if dataset_name:
+                df = AnalyticsAgent._reconstruct_dataframe(serialized)
+                dataframes[dataset_name] = df
+        return dataframes
+
+    @staticmethod
+    def _extract_visualization_data(fig) -> Optional[Dict[str, Any]]:
+        """Extract data from matplotlib Figure for testing.
+
+        Args:
+            fig: Matplotlib Figure object
+
+        Returns:
+            Dict with 'type' and 'data' keys
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.figure import Figure
+
+        if not isinstance(fig, Figure):
+            return None
+
+        try:
+            # Extract data from the first axes
+            if not fig.axes:
+                return None
+
+            ax = fig.axes[0]
+            lines = ax.get_lines()
+
+            if lines:
+                # Line/scatter plot
+                line = lines[0]
+                x_data = line.get_xdata().tolist()
+                y_data = line.get_ydata().tolist()
+                return {
+                    "type": "line",
+                    "data": {"x": x_data, "y": y_data}
+                }
+
+            # Check for bar charts
+            patches = ax.patches
+            if patches:
+                return {
+                    "type": "bar",
+                    "data": {"count": len(patches)}
+                }
+
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to extract visualization data: {e}")
+            return None
+
+    @staticmethod
+    def _auto_generate_visualization(df: pd.DataFrame, query: str) -> Optional[Dict[str, Any]]:
+        """Auto-generate visualization spec from DataFrame (testing method).
+
+        Args:
+            df: DataFrame to visualize
+            query: User query containing visualization hints
+
+        Returns:
+            Visualization spec dict
+        """
+        if df is None or df.empty:
+            return None
+
+        viz_type = AnalyticsAgent._detect_visualization_type(query)
+        columns = df.columns.tolist()
+
+        if len(columns) < 2:
+            return None
+
+        return {
+            "type": viz_type,
+            "x": columns[0],
+            "y": columns[1],
+            "title": "Auto-generated Chart"
+        }
+
+    @staticmethod
+    def _detect_visualization_type(query: str) -> str:
+        """Detect visualization type from query.
+
+        Args:
+            query: User query string
+
+        Returns:
+            Chart type: 'bar', 'line', 'pie', or 'scatter'
+        """
+        query_lower = query.lower()
+
+        if "bar" in query_lower:
+            return "bar"
+        elif "line" in query_lower or "trend" in query_lower:
+            return "line"
+        elif "pie" in query_lower:
+            return "pie"
+        elif "scatter" in query_lower:
+            return "scatter"
+
+        # Default to bar chart
+        return "bar"
+
+    @staticmethod
+    def _create_plotly_chart(df: pd.DataFrame, viz_spec: Dict[str, Any]) -> Optional[str]:
+        """Create Plotly HTML chart from DataFrame and spec (testing method).
+
+        Args:
+            df: DataFrame containing data
+            viz_spec: Visualization specification
+
+        Returns:
+            HTML string of the chart
+        """
+        try:
+            import plotly.graph_objects as go
+
+            chart_type = viz_spec.get("type", "bar")
+            x_col = viz_spec.get("x")
+            y_col = viz_spec.get("y")
+
+            if x_col not in df.columns or y_col not in df.columns:
+                return None
+
+            x_data = df[x_col].tolist()
+            y_data = df[y_col].tolist()
+
+            if chart_type == "bar":
+                fig = go.Figure(data=go.Bar(x=x_data, y=y_data))
+            elif chart_type == "line":
+                fig = go.Figure(data=go.Scatter(x=x_data, y=y_data, mode='lines+markers'))
+            elif chart_type == "scatter":
+                fig = go.Figure(data=go.Scatter(x=x_data, y=y_data, mode='markers'))
+            else:
+                fig = go.Figure(data=go.Bar(x=x_data, y=y_data))
+
+            fig.update_layout(
+                title=viz_spec.get("title", "Chart"),
+                xaxis_title=x_col,
+                yaxis_title=y_col,
+            )
+
+            return fig.to_html(include_plotlyjs=True, full_html=True)
+
+        except Exception as e:
+            logger.warning(f"Failed to create plotly chart: {e}")
+            return None
+
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph workflow for analytics with code generation.
 
@@ -114,42 +333,9 @@ class AnalyticsAgent(BaseAgent):
             try:
                 # Check if this is serialized DataFrame data
                 source = data_dict.get("source")
-                if source in ["rag_metadata", "file_metadata"] and data_dict.get("data"):
-                    # Reconstruct DataFrame
-                    df = pd.DataFrame(data_dict["data"])
-
-                    # COMPREHENSIVE DATA CLEANING: Clean ALL string columns
-                    # Remove footnote markers (like 'a', 'b', 'c') from all text data
-                    for col in df.columns:
-                        if df[col].dtype == 'object':
-                            # Clean trailing letters from numeric-like strings
-                            # This handles cases like '2007a', '123b', etc.
-                            df[col] = df[col].astype(str).str.replace(r'^(\d+)[a-zA-Z]+$', r'\1', regex=True)
-                            # Also clean leading/trailing whitespace
-                            df[col] = df[col].str.strip()
-
-                    # Apply dtype conversions if available
-                    dtypes = data_dict.get("dtypes", {})
-                    for col, dtype_str in dtypes.items():
-                        if col in df.columns:
-                            try:
-                                # Handle common dtype conversions
-                                if "int" in dtype_str.lower():
-                                    df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
-                                elif "float" in dtype_str.lower():
-                                    df[col] = pd.to_numeric(df[col], errors='coerce')
-                                elif "datetime" in dtype_str.lower():
-                                    df[col] = pd.to_datetime(df[col], errors='coerce')
-                            except Exception as e:
-                                logger.warning(f"Could not convert column {col} to {dtype_str}: {e}")
-
-                    # AUTO-DETECT and clean common year columns
-                    year_cols = [c for c in df.columns if 'year' in c.lower()]
-                    for col in year_cols:
-                        if df[col].dtype == 'object':
-                            # Convert year columns to numeric, coercing errors to NaN
-                            df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
-                            logger.info(f"Auto-cleaned year column: {col}")
+                if source in ["rag_metadata", "file_metadata", "dataframe"] and data_dict.get("data") is not None:
+                    # Use static method to reconstruct DataFrame
+                    df = self._reconstruct_dataframe(data_dict)
 
                     dataframes[name] = df
 
@@ -930,17 +1116,67 @@ plt.close()
             return response[start:end].strip()
         return response.strip()
 
-    async def _execute_safe(
-        self, code: str, df: pd.DataFrame, should_plot: bool
-    ) -> Tuple[Any, Optional[str]]:
-        """Execute code in controlled environment with safety checks."""
-        # Setup restricted environment
+    @staticmethod
+    async def _execute_code_safely(code: str, timeout: float = 5.0, df: Optional[pd.DataFrame] = None, should_plot: bool = False) -> Dict[str, Any]:
+        """Execute code safely with timeout and restricted environment.
+
+        Static method for testing code execution independently.
+
+        Args:
+            code: Python code to execute
+            timeout: Execution timeout in seconds
+            df: Optional DataFrame to make available as 'df'
+            should_plot: Whether to allow matplotlib plotting
+
+        Returns:
+            Dict containing execution result or error
+        """
+        import sys
+
+        # Restricted import function - only allow safe modules
+        def safe_import(name, *args, **kwargs):
+            # Check if module is allowed
+            base_module = name.split('.')[0]
+            if base_module not in {'pandas', 'numpy', 'matplotlib', 'time', 'datetime'}:
+                raise ImportError(f"Import of '{name}' is not allowed")
+
+            return __import__(name, *args, **kwargs)
+
+        # Setup restricted environment with safe builtins only
+        safe_builtins = {
+            'abs': abs,
+            'all': all,
+            'any': any,
+            'bool': bool,
+            'dict': dict,
+            'enumerate': enumerate,
+            'float': float,
+            'int': int,
+            'len': len,
+            'list': list,
+            'max': max,
+            'min': min,
+            'range': range,
+            'round': round,
+            'set': set,
+            'sorted': sorted,
+            'str': str,
+            'sum': sum,
+            'tuple': tuple,
+            'zip': zip,
+            '__import__': safe_import,  # Restricted import
+            # Block dangerous builtins: open, eval, exec, etc.
+        }
+
         env = {
+            "__builtins__": safe_builtins,
             "pd": pd,
             "np": np,
-            "df": df.copy(),  # Work on copy to prevent mutations
             "result": None
         }
+
+        if df is not None:
+            env["df"] = df.copy()
 
         if should_plot:
             import matplotlib
@@ -951,7 +1187,7 @@ plt.close()
             env["matplotlib"] = matplotlib
 
         try:
-            # Execute with timeout (5 seconds)
+            # Execute with timeout
             loop = asyncio.get_event_loop()
 
             def execute_sync():
@@ -960,17 +1196,29 @@ plt.close()
 
             result = await asyncio.wait_for(
                 loop.run_in_executor(None, execute_sync),
-                timeout=5.0
+                timeout=timeout
             )
 
             logger.info(f"Code executed successfully, result type: {type(result).__name__}")
-            return result, None
+            return {"result": result, "error": None}
 
         except asyncio.TimeoutError:
-            logger.error("Code execution timeout (>5 seconds)")
-            return None, "Code execution timeout (>5 seconds)"
+            logger.error(f"Code execution timeout (>{timeout} seconds)")
+            raise TimeoutError(f"Code execution timeout (>{timeout} seconds)")
         except Exception as e:
             logger.error(f"Code execution error: {e}", exc_info=True)
+            raise
+
+    async def _execute_safe(
+        self, code: str, df: pd.DataFrame, should_plot: bool
+    ) -> Tuple[Any, Optional[str]]:
+        """Execute code in controlled environment with safety checks."""
+        try:
+            result_dict = await self._execute_code_safely(code, timeout=5.0, df=df, should_plot=should_plot)
+            return result_dict["result"], result_dict["error"]
+        except TimeoutError as e:
+            return None, str(e)
+        except Exception as e:
             return None, f"Execution error: {str(e)}"
 
     async def _generate_explanation(self, query: str, result: Any) -> str:
@@ -1388,6 +1636,7 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
         analysis_results_dict = result.get("analysis_results", {})
         final_response = result.get("intermediate_results", {}).get("final_response", "")
         visualization_dict = result.get("intermediate_results", {}).get("visualization")
+        generated_code = result.get("intermediate_results", {}).get("generated_code", "")
 
         # Create Pydantic models for type safety
         visualization_model = None
@@ -1411,7 +1660,10 @@ The analysis reveals [key insight]. [Supporting detail or pattern]. [Implication
         return AgentResponse(
             success=True,
             message=analysis_result.text,
-            data={"analysis": analysis_result.model_dump()},
+            data={
+                "analysis": analysis_result.model_dump(),
+                "generated_code": generated_code,  # Include for testing/debugging
+            },
             visualization=visualization_model.model_dump() if visualization_model else None,
             next_agent=None,  # Analytics is the final agent
             state=state,

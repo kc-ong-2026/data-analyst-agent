@@ -1,0 +1,192 @@
+{
+  "retrieval_tests": [
+    {
+      "id": "ret_001",
+      "query": "What was the average income in Singapore in 2020?",
+      "category": "income",
+      "year": 2020,
+      "expected_datasets": ["income_gross_monthly_income_from_employment_of_full_ti_a88c7dab"],
+      "expected_context_keywords": ["income", "average", "2020", "singapore"]
+    },
+    {
+      "id": "ret_002",
+      "query": "Show me employment rates for 2019 and 2020",
+      "category": "employment",
+      "year": [2019, 2020],
+      "expected_datasets": ["employment_resident_employment_rate_by_age_and_sex"],
+      "expected_context_keywords": ["employment", "rate", "2019", "2020"]
+    },
+    {
+      "id": "ret_003",
+      "query": "Compare median income between males and females in 2021",
+      "category": "income",
+      "year": 2021,
+      "expected_datasets": ["income_gross_monthly_income_from_employment_of_full_ti_f9938fba"],
+      "expected_context_keywords": ["income", "median", "male", "female", "2021"]
+    },
+    {
+      "id": "ret_004",
+      "query": "What are the working hours trends from 2018 to 2022?",
+      "category": "hours_worked",
+      "year": [2018, 2019, 2020, 2021, 2022],
+      "expected_datasets": ["hours_worked_annual_average_hours_worked_per_employed__42da8e75"],
+      "expected_context_keywords": ["hours", "worked", "working", "trend"]
+    },
+    {
+      "id": "ret_005",
+      "query": "Show unemployment rate by age group in 2020",
+      "category": "employment",
+      "year": 2020,
+      "expected_datasets": ["employment_resident_employment_rate_by_age_and_sex"],
+      "expected_context_keywords": ["unemployment", "employment", "age", "group", "2020"]
+    }
+  ],
+  "generation_tests": [
+    {
+      "id": "gen_001",
+      "query": "What was the average income in Singapore in 2020?",
+      "context": "Dataset: income_from_work_2020.csv\nColumns: age_group, sex, average_income\nSample data: Age 25-34 Male: $4500, Age 25-34 Female: $4200",
+      "ground_truth_answer": "Based on the 2020 income data, the average income varies by age group and sex. For the 25-34 age group, males earned an average of $4,500 while females earned $4,200.",
+      "ground_truth_code": "df.groupby(['age_group', 'sex'])['average_income'].mean()",
+      "visualization_type": "bar"
+    },
+    {
+      "id": "gen_002",
+      "query": "Compare employment rates between 2019 and 2020",
+      "context": "Dataset 1: employment_rate_2019.csv\nDataset 2: employment_rate_2020.csv\nColumns: age_group, employment_rate\n2019: 25-34: 85%, 35-44: 87%\n2020: 25-34: 82%, 35-44: 84%",
+      "ground_truth_answer": "Employment rates decreased from 2019 to 2020 across all age groups. The 25-34 age group saw a decline from 85% to 82%, while the 35-44 age group decreased from 87% to 84%.",
+      "ground_truth_code": "df_combined = pd.merge(df_2019, df_2020, on='age_group', suffixes=('_2019', '_2020'))\ndf_combined[['age_group', 'employment_rate_2019', 'employment_rate_2020']]",
+      "visualization_type": "line"
+    },
+    {
+      "id": "gen_003",
+      "query": "What is the gender income gap in 2021?",
+      "context": "Dataset: income_from_work_2021.csv\nMale average income: $5200\nFemale average income: $4800",
+      "ground_truth_answer": "In 2021, there was a gender income gap of $400, with males earning an average of $5,200 compared to females at $4,800. This represents approximately a 7.7% difference.",
+      "ground_truth_code": "male_avg = df[df['sex'] == 'Male']['average_income'].mean()\nfemale_avg = df[df['sex'] == 'Female']['average_income'].mean()\ngap = male_avg - female_avg\ngap_pct = (gap / male_avg) * 100",
+      "visualization_type": "bar"
+    }
+  ],
+  "agent_tests": {
+    "verification": [
+      {
+        "id": "ver_001",
+        "query": "What was the average income in 2020?",
+        "expected_valid": true,
+        "expected_topic": "income",
+        "expected_year": 2020,
+        "expected_pause": false
+      },
+      {
+        "id": "ver_002",
+        "query": "Tell me about the weather today",
+        "expected_valid": false,
+        "expected_topic": null,
+        "expected_year": null,
+        "expected_pause": true,
+        "expected_reason": "off_topic"
+      },
+      {
+        "id": "ver_003",
+        "query": "Show me employment rates",
+        "expected_valid": true,
+        "expected_topic": "employment",
+        "expected_year": null,
+        "expected_pause": true,
+        "expected_reason": "missing_year"
+      },
+      {
+        "id": "ver_004",
+        "query": "Compare income between 2019 and 2021",
+        "expected_valid": true,
+        "expected_topic": "income",
+        "expected_year": [2019, 2021],
+        "expected_pause": false
+      }
+    ],
+    "coordinator": [
+      {
+        "id": "coord_001",
+        "query": "What was the average income in 2020?",
+        "expected_intent": "retrieve_and_analyze",
+        "expected_datasets": ["income_2020"],
+        "expected_steps": ["identify_data", "extract_data", "analyze_data"],
+        "expected_delegation": "extraction_agent"
+      },
+      {
+        "id": "coord_002",
+        "query": "Show me a chart comparing employment rates",
+        "expected_intent": "retrieve_analyze_visualize",
+        "expected_datasets": ["employment_rate"],
+        "expected_steps": ["identify_data", "extract_data", "analyze_data", "create_visualization"],
+        "expected_delegation": "extraction_agent"
+      }
+    ],
+    "extraction": [
+      {
+        "id": "ext_001",
+        "query": "average income 2020",
+        "expected_datasets_count": 1,
+        "expected_category": "income",
+        "expected_year_filter": 2020,
+        "min_confidence_score": 0.7
+      },
+      {
+        "id": "ext_002",
+        "query": "employment trends",
+        "expected_datasets_count": 3,
+        "expected_category": "employment",
+        "expected_year_filter": null,
+        "min_confidence_score": 0.5
+      }
+    ],
+    "analytics": [
+      {
+        "id": "anal_001",
+        "query": "Calculate average income by age group",
+        "data_description": "DataFrame with columns: age_group, average_income",
+        "expected_code_contains": ["groupby", "mean", "age_group"],
+        "expected_explanation_keywords": ["average", "age group", "income"],
+        "expected_visualization": "bar"
+      },
+      {
+        "id": "anal_002",
+        "query": "Show trend of employment rate over years",
+        "data_description": "DataFrame with columns: year, employment_rate",
+        "expected_code_contains": ["sort_values", "year"],
+        "expected_explanation_keywords": ["trend", "employment", "year"],
+        "expected_visualization": "line"
+      }
+    ]
+  },
+  "performance_tests": [
+    {
+      "id": "perf_001",
+      "query": "What was the average income in 2020?",
+      "expected_retrieval_time_ms": 2000,
+      "expected_total_time_ms": 30000,
+      "concurrent_requests": 1
+    },
+    {
+      "id": "perf_002",
+      "query": "Compare employment rates",
+      "expected_retrieval_time_ms": 2000,
+      "expected_total_time_ms": 30000,
+      "concurrent_requests": 10
+    }
+  ],
+  "error_handling_tests": [
+    {
+      "id": "err_001",
+      "query": "Show data for year 2050",
+      "expected_error": "year_not_available",
+      "expected_pause": true
+    },
+    {
+      "id": "err_002",
+      "query": "Get me cryptocurrency prices",
+      "expected_error": "off_topic",
+      "expected_pause": true
+    }
+  ]
+}

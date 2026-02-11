@@ -504,6 +504,9 @@ class RAGService:
             result.score = rerank_score
             reranked_results.append(result)
 
+        # Sort by score descending (highest relevance first)
+        reranked_results.sort(key=lambda x: x.score, reverse=True)
+
         logger.info(
             f"[RERANK] Completed async reranking: {len(reranked_results)} results. "
             f"Top score: {reranked_results[0].score:.3f}, "
@@ -608,5 +611,8 @@ class RAGService:
                         score=scores_by_id.get(row.id, 0.0),  # Include relevance score
                     )
                 )
+
+        # Sort by score descending to preserve reranked order
+        table_schemas.sort(key=lambda x: x.score, reverse=True)
 
         return table_schemas

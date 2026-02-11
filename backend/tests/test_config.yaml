@@ -1,0 +1,106 @@
+# Test-specific configuration
+testing:
+  # Mock LLM for fast tests (set to true to skip actual LLM API calls)
+  use_mock_llm: false
+
+  # Use cached embeddings for faster tests
+  use_local_embeddings: true
+
+  # Test database configuration
+  database:
+    name: "govtech_rag_test"
+    reset_on_startup: true
+    seed_sample_data: true
+
+  # Ragas evaluation configuration
+  ragas:
+    enabled: true
+    sample_size: 50
+    batch_size: 10
+    metrics:
+      - context_precision
+      - context_recall
+      - faithfulness
+      - answer_relevancy
+      - answer_correctness
+    thresholds:
+      context_precision: 0.85
+      context_recall: 0.90
+      faithfulness: 0.85
+      answer_relevancy: 0.80
+      answer_correctness: 0.75
+
+  # BERTScore evaluation configuration
+  bertscore:
+    enabled: true
+    model: "microsoft/deberta-xlarge-mnli"  # Best performance
+    # model: "bert-base-uncased"  # Faster alternative
+    lang: "en"
+    rescale_with_baseline: true
+    batch_size: 32
+    thresholds:
+      precision: 0.70
+      recall: 0.70
+      f1: 0.75
+
+  # LLM as judge configuration
+  llm_judge:
+    enabled: true
+    model: "claude-sonnet-4-5"
+    provider: "anthropic"
+    temperature: 0.0
+    max_tokens: 2000
+    criteria:
+      - accuracy
+      - completeness
+      - clarity
+      - conciseness
+      - code_quality        # For analytics agent only
+      - visualization       # For analytics agent only
+    thresholds:
+      overall_score: 3.5     # Out of 5.0
+      accuracy: 4.0
+      completeness: 3.5
+      clarity: 3.5
+      conciseness: 3.0
+
+  # Performance testing thresholds (in seconds)
+  performance:
+    rag_retrieval_p50: 2.0
+    rag_retrieval_p90: 4.0
+    code_generation_p50: 10.0
+    code_generation_p90: 15.0
+    end_to_end_p50: 30.0
+    end_to_end_p90: 45.0
+    concurrent_requests: 10
+
+  # Test data configuration
+  fixtures:
+    queries_file: "fixtures/sample_queries.json"
+    contexts_file: "fixtures/ground_truth_contexts.json"
+    answers_file: "fixtures/ground_truth_answers.json"
+    mock_datasets_dir: "fixtures/mock_datasets"
+
+  # Retry configuration for flaky tests
+  retry:
+    max_attempts: 3
+    backoff_factor: 2
+
+  # Caching for expensive operations
+  cache:
+    embeddings: true
+    bm25_index: true
+    llm_responses: false  # Don't cache for evaluation accuracy
+
+  # Logging configuration
+  logging:
+    level: "INFO"
+    format: "%(asctime)s [%(levelname)8s] [%(name)s] %(message)s"
+    capture_warnings: true
+
+  # CI/CD specific settings
+  ci:
+    skip_slow_tests: false
+    skip_llm_tests: false
+    fail_fast: false
+    coverage_threshold: 80

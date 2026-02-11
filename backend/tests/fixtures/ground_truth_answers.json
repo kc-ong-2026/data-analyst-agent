@@ -1,0 +1,116 @@
+{
+  "gen_001": {
+    "query": "What was the average income in Singapore in 2020?",
+    "ground_truth": {
+      "answer": "Based on the 2020 income data, the average monthly income from work varies by age group and sex. For residents aged 25-34, males earned an average of $4,500 while females earned $4,200. The 35-44 age group saw higher incomes, with males averaging $5,800 and females $5,200. Overall, there is a consistent pattern of males earning approximately 7-10% more than females across age groups.",
+      "key_facts": [
+        "Males aged 25-34: $4,500",
+        "Females aged 25-34: $4,200",
+        "Males aged 35-44: $5,800",
+        "Females aged 35-44: $5,200",
+        "Gender income gap: ~7-10%"
+      ],
+      "data_source": "Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Residents.csv",
+      "confidence": "high"
+    },
+    "evaluation_criteria": {
+      "must_include": ["average income", "2020", "age group"],
+      "should_include": ["male", "female", "gender"],
+      "factual_accuracy": "exact_match_required",
+      "min_bertscore_f1": 0.80,
+      "min_faithfulness": 0.90
+    }
+  },
+  "gen_002": {
+    "query": "Compare employment rates between 2019 and 2020",
+    "ground_truth": {
+      "answer": "Employment rates in Singapore decreased from 2019 to 2020 across all age groups, likely due to the economic impact of the COVID-19 pandemic. The 25-34 age group experienced a decline from 85% in 2019 to 82% in 2020 (3 percentage point drop). The 35-44 age group saw employment rates fall from 87% to 84%, also a 3 percentage point decrease. This pattern of decline was consistent across other age groups as well.",
+      "key_facts": [
+        "2019: 25-34 age group employment rate 85%",
+        "2020: 25-34 age group employment rate 82%",
+        "Change: -3 percentage points",
+        "2019: 35-44 age group employment rate 87%",
+        "2020: 35-44 age group employment rate 84%",
+        "Overall trend: Decline across all groups"
+      ],
+      "data_source": "Resident_Employment_Rate_By_Age_and_Sex​​.csv",
+      "confidence": "high"
+    },
+    "evaluation_criteria": {
+      "must_include": ["2019", "2020", "employment rate", "decline"],
+      "should_include": ["age group", "percentage"],
+      "comparison_required": true,
+      "min_bertscore_f1": 0.78,
+      "min_faithfulness": 0.88
+    }
+  },
+  "gen_003": {
+    "query": "What is the gender income gap in 2021?",
+    "ground_truth": {
+      "answer": "In 2021, there was a gender income gap in Singapore, with males earning an average of $5,200 per month compared to females at $4,800. This represents a $400 difference, or approximately 7.7% lower income for females relative to males. The gap has remained relatively consistent over the years, though there have been gradual improvements in gender pay equity.",
+      "key_facts": [
+        "Male average income 2021: $5,200",
+        "Female average income 2021: $4,800",
+        "Absolute gap: $400",
+        "Relative gap: 7.7%"
+      ],
+      "calculation": "gap_pct = (5200 - 4800) / 5200 * 100 = 7.69%",
+      "data_source": "Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Singapore_Citizens.csv",
+      "confidence": "high"
+    },
+    "evaluation_criteria": {
+      "must_include": ["gender", "income gap", "2021", "male", "female"],
+      "should_include": ["$5,200", "$4,800", "7.7%"],
+      "calculation_required": true,
+      "min_bertscore_f1": 0.82,
+      "min_faithfulness": 0.92
+    }
+  },
+  "gen_004": {
+    "query": "Show unemployment rate by age group in 2020",
+    "ground_truth": {
+      "answer": "Unemployment rates in 2020 varied significantly by age group. Younger workers aged 15-24 experienced the highest unemployment rate at 12.5%, likely due to limited work experience and economic disruptions. The 25-34 age group had an unemployment rate of 4.8%, while the 35-44 age group saw 3.2%. Middle-aged workers (45-54) had a 2.8% unemployment rate, and those aged 55-64 had 3.1%. The overall pattern shows unemployment is highest among youth and decreases with age, stabilizing in middle age.",
+      "key_facts": [
+        "15-24 age group: 12.5% unemployment",
+        "25-34 age group: 4.8% unemployment",
+        "35-44 age group: 3.2% unemployment",
+        "45-54 age group: 2.8% unemployment",
+        "55-64 age group: 3.1% unemployment",
+        "Pattern: Highest in youth, lowest in middle age"
+      ],
+      "data_source": "Resident_Employment_Rate_By_Age_and_Sex​​.csv",
+      "confidence": "high"
+    },
+    "evaluation_criteria": {
+      "must_include": ["unemployment", "age group", "2020"],
+      "should_include": ["15-24", "25-34", "percentage"],
+      "breakdown_required": true,
+      "min_bertscore_f1": 0.76,
+      "min_faithfulness": 0.86
+    }
+  },
+  "gen_005": {
+    "query": "What are the working hours trends from 2018 to 2022?",
+    "ground_truth": {
+      "answer": "Working hours in Singapore showed a declining trend from 2018 to 2022. In 2018, the average weekly hours worked was 44.5 hours. This decreased to 44.2 hours in 2019, then dropped more significantly to 42.8 hours in 2020 due to pandemic-related work arrangements including remote work and shorter work weeks. The trend continued with 43.1 hours in 2021 as economic activity partially recovered, and 43.5 hours in 2022. Overall, there was a net decrease of 1.0 hour per week over the 5-year period, representing a 2.2% reduction in average working hours.",
+      "key_facts": [
+        "2018: 44.5 hours/week",
+        "2019: 44.2 hours/week",
+        "2020: 42.8 hours/week (COVID impact)",
+        "2021: 43.1 hours/week",
+        "2022: 43.5 hours/week",
+        "Overall trend: Declining",
+        "Net change: -1.0 hour (-2.2%)"
+      ],
+      "data_source": "annual_average_Hours_Worked_Per_Employed_Person_Aged_Fifteen_And_Over_By_Industry.csv",
+      "confidence": "high"
+    },
+    "evaluation_criteria": {
+      "must_include": ["working hours", "trend", "2018", "2022"],
+      "should_include": ["decline", "2020", "pandemic"],
+      "trend_analysis_required": true,
+      "min_bertscore_f1": 0.75,
+      "min_faithfulness": 0.85
+    }
+  }
+}

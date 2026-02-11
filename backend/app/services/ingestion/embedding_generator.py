@@ -12,7 +12,6 @@ from app.db.models import (
     EmploymentDatasetMetadata,
     HoursWorkedDatasetMetadata,
     IncomeDatasetMetadata,
-    LabourForceDatasetMetadata,
 )
 from app.services.llm_service import get_embedding_service
 
@@ -27,7 +26,6 @@ class EmbeddingGenerator:
         EmploymentDatasetMetadata,
         HoursWorkedDatasetMetadata,
         IncomeDatasetMetadata,
-        LabourForceDatasetMetadata,
     ]
 
     def __init__(self):

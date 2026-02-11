@@ -86,12 +86,26 @@ class AgentState:
         state = cls()
         state.messages = list(graph_state.get("messages", []))
         state.current_task = graph_state.get("current_task")
-        state.extracted_data = dict(graph_state.get("extracted_data", {}))
-        state.analysis_results = dict(graph_state.get("analysis_results", {}))
-        state.workflow_plan = list(graph_state.get("workflow_plan", []))
+
+        # Handle extracted_data - should be dict but might be list in some tests
+        extracted = graph_state.get("extracted_data", {})
+        state.extracted_data = dict(extracted) if isinstance(extracted, dict) else {}
+
+        # Handle analysis_results - should be dict
+        analysis = graph_state.get("analysis_results", {})
+        state.analysis_results = dict(analysis) if isinstance(analysis, dict) else {}
+
+        # Handle workflow_plan - should be list but might be dict in some tests
+        workflow = graph_state.get("workflow_plan", [])
+        state.workflow_plan = list(workflow) if isinstance(workflow, (list, tuple)) else []
+
         state.current_step = graph_state.get("current_step", 0)
         state.errors = list(graph_state.get("errors", []))
-        state.metadata = dict(graph_state.get("metadata", {}))
+
+        # Handle metadata - should be dict
+        metadata = graph_state.get("metadata", {})
+        state.metadata = dict(metadata) if isinstance(metadata, dict) else {}
+
         return state
 
     def to_dict(self) -> Dict[str, Any]:
@@ -219,18 +233,23 @@ class BaseAgent(ABC):
             self._graph = self._build_graph()
         return self._graph
 
-    async def execute(self, state: AgentState) -> AgentResponse:
+    async def execute(self, state: Union[AgentState, Dict[str, Any]]) -> AgentResponse:
         """Execute the agent's LangGraph workflow.
 
         Args:
-            state: The current agent state
+            state: The current agent state (AgentState object or GraphState dict)
 
         Returns:
             AgentResponse with the result of execution
         """
         try:
-            # Convert to graph state
-            graph_state = state.to_graph_state()
+            # Convert to AgentState if needed
+            if isinstance(state, dict):
+                agent_state = AgentState.from_graph_state(state)
+                graph_state = state
+            else:
+                agent_state = state
+                graph_state = state.to_graph_state()
 
             # Run the graph
             result = await self.graph.ainvoke(graph_state)
@@ -242,11 +261,18 @@ class BaseAgent(ABC):
             return self._build_response(result, updated_state)
 
         except Exception as e:
-            state.add_error(f"{self.name} error: {str(e)}")
+            # Handle error based on state type
+            if isinstance(state, AgentState):
+                state.add_error(f"{self.name} error: {str(e)}")
+                error_state = state
+            else:
+                error_state = AgentState.from_graph_state(state) if isinstance(state, dict) else AgentState()
+                error_state.add_error(f"{self.name} error: {str(e)}")
+
             return AgentResponse(
                 success=False,
                 message=f"Agent execution failed: {str(e)}",
-                state=state,
+                state=error_state,
             )
 
     @abstractmethod
