@@ -11,11 +11,11 @@ criterion, enabling explainable evaluation.
 
 import json
 import logging
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class JudgmentCriterion:
     name: str
     score: float  # 1-5 scale
     reasoning: str
-    issues: List[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -35,12 +35,12 @@ class LLMJudgment:
     """Complete judgment from LLM judge."""
 
     overall_score: float
-    criteria_scores: Dict[str, JudgmentCriterion]
-    strengths: List[str] = field(default_factory=list)
-    weaknesses: List[str] = field(default_factory=list)
+    criteria_scores: dict[str, JudgmentCriterion]
+    strengths: list[str] = field(default_factory=list)
+    weaknesses: list[str] = field(default_factory=list)
     recommendation: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "overall_score": self.overall_score,
@@ -57,7 +57,7 @@ class LLMJudgment:
             "recommendation": self.recommendation,
         }
 
-    def meets_thresholds(self, thresholds: Dict[str, float]) -> bool:
+    def meets_thresholds(self, thresholds: dict[str, float]) -> bool:
         """Check if all criteria meet their thresholds."""
         # Check overall score
         overall_threshold = thresholds.get("overall_score", 0.0)
@@ -81,7 +81,7 @@ class LLMJudge:
     quality criteria with explainable reasoning.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize LLM judge.
 
@@ -99,18 +99,15 @@ class LLMJudge:
         self.provider = config.get("provider", "anthropic")
         self.temperature = config.get("temperature", 0.0)
         self.max_tokens = config.get("max_tokens", 2000)
-        self.criteria = config.get("criteria", [
-            "accuracy", "completeness", "clarity", "conciseness"
-        ])
+        self.criteria = config.get(
+            "criteria", ["accuracy", "completeness", "clarity", "conciseness"]
+        )
         self.thresholds = config.get("thresholds", {})
 
         # Initialize LLM
         self.llm = self._init_llm()
 
-        logger.info(
-            f"Initialized LLMJudge with model: {self.model}, "
-            f"criteria: {self.criteria}"
-        )
+        logger.info(f"Initialized LLMJudge with model: {self.model}, " f"criteria: {self.criteria}")
 
     def _init_llm(self):
         """Initialize LLM client."""
@@ -131,9 +128,9 @@ class LLMJudge:
         self,
         query: str,
         answer: str,
-        context: Optional[str] = None,
-        ground_truth: Optional[str] = None,
-        criteria: Optional[List[str]] = None,
+        context: str | None = None,
+        ground_truth: str | None = None,
+        criteria: list[str] | None = None,
     ) -> str:
         """
         Build evaluation prompt for the judge.
@@ -171,7 +168,7 @@ class LLMJudge:
 {ground_truth}
 """
 
-        prompt += f"""
+        prompt += """
 **Evaluation Criteria:**
 Evaluate the generated answer on the following criteria using a 1-5 scale (1=Poor, 2=Fair, 3=Good, 4=Very Good, 5=Excellent):
 
@@ -188,8 +185,7 @@ Evaluate the generated answer on the following criteria using a 1-5 scale (1=Poo
 
         for criterion in criteria:
             description = criterion_descriptions.get(
-                criterion,
-                f"Evaluate the {criterion} of the answer."
+                criterion, f"Evaluate the {criterion} of the answer."
             )
             prompt += f"{criterion.upper()}: {description}\n\n"
 
@@ -226,9 +222,9 @@ Provide your evaluation in the following JSON format:
         self,
         query: str,
         answer: str,
-        context: Optional[str] = None,
-        ground_truth: Optional[str] = None,
-        criteria: Optional[List[str]] = None,
+        context: str | None = None,
+        ground_truth: str | None = None,
+        criteria: list[str] | None = None,
     ) -> LLMJudgment:
         """
         Evaluate a single query-answer pair.
@@ -261,7 +257,9 @@ Provide your evaluation in the following JSON format:
 
             # Get judgment from LLM
             messages = [
-                SystemMessage(content="You are an expert evaluator. Provide objective, structured assessments."),
+                SystemMessage(
+                    content="You are an expert evaluator. Provide objective, structured assessments."
+                ),
                 HumanMessage(content=prompt),
             ]
 
@@ -317,8 +315,8 @@ Provide your evaluation in the following JSON format:
 
     def evaluate_batch(
         self,
-        test_cases: List[Dict[str, Any]],
-    ) -> List[LLMJudgment]:
+        test_cases: list[dict[str, Any]],
+    ) -> list[LLMJudgment]:
         """
         Evaluate a batch of test cases.
 
@@ -356,8 +354,8 @@ Provide your evaluation in the following JSON format:
         query: str,
         answer_a: str,
         answer_b: str,
-        context: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        context: str | None = None,
+    ) -> dict[str, Any]:
         """
         Compare two answers using pairwise evaluation.
 
@@ -387,7 +385,7 @@ Provide your evaluation in the following JSON format:
             "answer_b_judgment": judgment_b.to_dict(),
         }
 
-    def _default_judgment(self, criteria: Optional[List[str]] = None) -> LLMJudgment:
+    def _default_judgment(self, criteria: list[str] | None = None) -> LLMJudgment:
         """Return default judgment when evaluation fails."""
         criteria = criteria or self.criteria
 

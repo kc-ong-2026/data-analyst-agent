@@ -8,9 +8,9 @@ Tests the RAG pipeline quality:
 - Confidence-based dataset selection
 """
 
-import pytest
 import time
-from typing import List, Dict, Any
+
+import pytest
 
 
 @pytest.mark.integration
@@ -21,8 +21,8 @@ class TestRAGRetrievalQuality:
 
     async def test_retrieval_returns_relevant_datasets(self):
         """Test that RAG retrieves relevant datasets for income queries."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -34,9 +34,7 @@ class TestRAGRetrievalQuality:
 
         start_time = time.time()
         results = await rag_service.retrieve(
-            query=query,
-            category_filter="income",
-            year_filter={"start": 2020, "end": 2020}
+            query=query, category_filter="income", year_filter={"start": 2020, "end": 2020}
         )
         elapsed = time.time() - start_time
 
@@ -55,8 +53,8 @@ class TestRAGRetrievalQuality:
 
     async def test_category_filtering(self):
         """Test that category filtering works correctly."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -78,12 +76,14 @@ class TestRAGRetrievalQuality:
         assert len(income_results.table_schemas) > 0
         assert len(employment_results.table_schemas) > 0
 
-        print(f"✅ Category filtering: income={len(income_results.table_schemas)}, employment={len(employment_results.table_schemas)}")
+        print(
+            f"✅ Category filtering: income={len(income_results.table_schemas)}, employment={len(employment_results.table_schemas)}"
+        )
 
     async def test_year_filtering(self):
         """Test that year filtering works correctly."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -93,25 +93,27 @@ class TestRAGRetrievalQuality:
         results_2020 = await rag_service.retrieve(
             query="average income",
             category_filter="income",
-            year_filter={"start": 2020, "end": 2020}
+            year_filter={"start": 2020, "end": 2020},
         )
 
         results_2019 = await rag_service.retrieve(
             query="average income",
             category_filter="income",
-            year_filter={"start": 2019, "end": 2019}
+            year_filter={"start": 2019, "end": 2019},
         )
 
         assert len(results_2020.table_schemas) > 0
         assert len(results_2019.table_schemas) > 0
 
         # Results should include the specified year in metadata or filename
-        print(f"✅ Year filtering: 2020={len(results_2020.table_schemas)}, 2019={len(results_2019.table_schemas)}")
+        print(
+            f"✅ Year filtering: 2020={len(results_2020.table_schemas)}, 2019={len(results_2019.table_schemas)}"
+        )
 
     async def test_hybrid_search_vs_vector_only(self):
         """Compare hybrid search (vector + BM25) vs vector-only."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -127,14 +129,16 @@ class TestRAGRetrievalQuality:
         # Should return results
         assert len(hybrid_results.table_schemas) > 0
 
-        print(f"✅ Hybrid search returned {len(hybrid_results.table_schemas)} results in {hybrid_time:.2f}s")
+        print(
+            f"✅ Hybrid search returned {len(hybrid_results.table_schemas)} results in {hybrid_time:.2f}s"
+        )
         for i, schema in enumerate(hybrid_results.table_schemas[:3], 1):
             print(f"   {i}. Score: {schema.score:.3f}")
 
     async def test_reranking_scores(self):
         """Test that reranking produces reasonable confidence scores."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_config = config.get_rag_config()
@@ -162,7 +166,7 @@ class TestRAGRetrievalQuality:
             score2 = results.table_schemas[1].score
             assert score1 >= score2, f"Top result score {score1} < second result {score2}"
 
-        print(f"✅ Reranking scores are in valid range")
+        print("✅ Reranking scores are in valid range")
 
 
 @pytest.mark.integration
@@ -173,8 +177,8 @@ class TestConfidenceBasedSelection:
 
     async def test_loads_high_confidence_datasets(self):
         """Test that high-confidence datasets are loaded."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_config = config.get_rag_config()
@@ -188,8 +192,7 @@ class TestConfidenceBasedSelection:
 
         # Count datasets above threshold
         high_confidence = [
-            schema for schema in results.table_schemas
-            if schema.score >= confidence_threshold
+            schema for schema in results.table_schemas if schema.score >= confidence_threshold
         ]
 
         print(f"✅ Confidence threshold {confidence_threshold}:")
@@ -200,8 +203,8 @@ class TestConfidenceBasedSelection:
 
     async def test_respects_min_max_dataset_limits(self):
         """Test that min/max dataset limits are respected."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_config = config.get_rag_config()

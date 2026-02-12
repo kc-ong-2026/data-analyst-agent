@@ -11,38 +11,66 @@ def requires_sql_aggregation(query: str) -> bool:
 
     # Aggregation keywords
     aggregation_keywords = [
-        "average", "avg", "mean",
-        "total", "sum",
-        "count", "number of",
-        "trend", "over time", "by year", "by month",
-        "group by", "grouped by",
-        "maximum", "max", "highest",
-        "minimum", "min", "lowest",
+        "average",
+        "avg",
+        "mean",
+        "total",
+        "sum",
+        "count",
+        "number of",
+        "trend",
+        "over time",
+        "by year",
+        "by month",
+        "group by",
+        "grouped by",
+        "maximum",
+        "max",
+        "highest",
+        "minimum",
+        "min",
+        "lowest",
         "median",
-        "compare", "comparison",
+        "compare",
+        "comparison",
         "distribution",
-        "percentage", "percent",
+        "percentage",
+        "percent",
         "rate",  # employment rate, unemployment rate, etc.
     ]
 
     # Grouping/dimension keywords
     grouping_keywords = [
-        "by industry", "by sector", "by age", "by sex",
-        "by qualification", "by education", "by gender",
-        "by occupation", "by region", "by area",
+        "by industry",
+        "by sector",
+        "by age",
+        "by sex",
+        "by qualification",
+        "by education",
+        "by gender",
+        "by occupation",
+        "by region",
+        "by area",
     ]
 
     # Year range patterns
     year_range_patterns = [
-        r'\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until|and)\s*(19\d{2}|20[0-4]\d)\b',
-        r'\bbetween\s+(19\d{2}|20[0-4]\d)\s+(?:and|to)\s+(19\d{2}|20[0-4]\d)\b',
-        r'\bfrom\s+(19\d{2}|20[0-4]\d)\s+(?:to|until)\s+(19\d{2}|20[0-4]\d)\b',
+        r"\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until|and)\s*(19\d{2}|20[0-4]\d)\b",
+        r"\bbetween\s+(19\d{2}|20[0-4]\d)\s+(?:and|to)\s+(19\d{2}|20[0-4]\d)\b",
+        r"\bfrom\s+(19\d{2}|20[0-4]\d)\s+(?:to|until)\s+(19\d{2}|20[0-4]\d)\b",
     ]
 
     # Action verbs
     action_keywords = [
-        "show", "display", "get", "find", "retrieve",
-        "list", "what is", "what are", "how many",
+        "show",
+        "display",
+        "get",
+        "find",
+        "retrieve",
+        "list",
+        "what is",
+        "what are",
+        "how many",
     ]
 
     # Check aggregation keywords
@@ -63,7 +91,7 @@ def requires_sql_aggregation(query: str) -> bool:
         return True, "action verb"
 
     # Check for single years
-    if re.search(r'\b(19\d{2}|20[0-4]\d)\b', query_lower):
+    if re.search(r"\b(19\d{2}|20[0-4]\d)\b", query_lower):
         return True, "contains year"
 
     return False, "no match"
@@ -83,7 +111,6 @@ test_queries = [
     ("What is the unemployment rate?", True),
     ("Get employment data for 2023", True),
     ("Display employment statistics", True),
-
     # Should NOT require SQL (False) - informational/metadata queries
     ("Tell me about employment datasets", False),
     ("What data do you have?", False),
@@ -108,7 +135,7 @@ for query, expected in test_queries:
         failed += 1
 
     print(f"{status} | Expected: {expected:5} | Got: {result:5} | Reason: {reason}")
-    print(f"       | Query: \"{query}\"")
+    print(f'       | Query: "{query}"')
     print()
 
 print("=" * 80)

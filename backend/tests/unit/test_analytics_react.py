@@ -1,11 +1,11 @@
 """Unit tests for Analytics Agent ReAct pattern."""
 
-import pytest
+from unittest.mock import AsyncMock, patch
+
 import pandas as pd
-from unittest.mock import AsyncMock, MagicMock, patch
+import pytest
 
 from app.services.agents.analytics.agent import AnalyticsAgent
-from app.services.agents.base_agent import GraphState
 
 
 @pytest.fixture
@@ -17,12 +17,14 @@ def analytics_agent():
 @pytest.fixture
 def sample_dataframe():
     """Create sample DataFrame for testing."""
-    return pd.DataFrame({
-        "year": [2020, 2021, 2022],
-        "sex": ["Male", "Female", "Male"],
-        "age": ["25-34", "35-44", "25-34"],
-        "employment_rate": [85.2, 78.3, 86.1]
-    })
+    return pd.DataFrame(
+        {
+            "year": [2020, 2021, 2022],
+            "sex": ["Male", "Female", "Male"],
+            "age": ["25-34", "35-44", "25-34"],
+            "employment_rate": [85.2, 78.3, 86.1],
+        }
+    )
 
 
 class TestCodeValidation:
@@ -33,9 +35,7 @@ class TestCodeValidation:
         bad_code = "result = df.groupby('age')['employment_rate'.mean()"  # Missing closing bracket
 
         validation = analytics_agent._validate_generated_code(
-            code=bad_code,
-            dataframes={"df": sample_dataframe},
-            should_plot=False
+            code=bad_code, dataframes={"df": sample_dataframe}, should_plot=False
         )
 
         assert validation["valid"] is False
@@ -47,9 +47,7 @@ class TestCodeValidation:
         code_with_bad_col = "result = df.groupby('sector')['employment_rate'].mean()"
 
         validation = analytics_agent._validate_generated_code(
-            code=code_with_bad_col,
-            dataframes={"df": sample_dataframe},
-            should_plot=False
+            code=code_with_bad_col, dataframes={"df": sample_dataframe}, should_plot=False
         )
 
         assert validation["valid"] is False
@@ -63,9 +61,7 @@ result = df.head()
 """
 
         validation = analytics_agent._validate_generated_code(
-            code=code_with_os,
-            dataframes={"df": sample_dataframe},
-            should_plot=False
+            code=code_with_os, dataframes={"df": sample_dataframe}, should_plot=False
         )
 
         assert validation["valid"] is False
@@ -80,9 +76,7 @@ result = df.head()
 """
 
         validation = analytics_agent._validate_generated_code(
-            code=code_with_file_io,
-            dataframes={"df": sample_dataframe},
-            should_plot=False
+            code=code_with_file_io, dataframes={"df": sample_dataframe}, should_plot=False
         )
 
         assert validation["valid"] is False
@@ -93,9 +87,7 @@ result = df.head()
         code_without_plot = "result = df.groupby('age')['employment_rate'].mean()"
 
         validation = analytics_agent._validate_generated_code(
-            code=code_without_plot,
-            dataframes={"df": sample_dataframe},
-            should_plot=True
+            code=code_without_plot, dataframes={"df": sample_dataframe}, should_plot=True
         )
 
         # Should have warning about missing matplotlib
@@ -110,9 +102,7 @@ result = result.head(100)
 """
 
         validation = analytics_agent._validate_generated_code(
-            code=valid_code,
-            dataframes={"df": sample_dataframe},
-            should_plot=False
+            code=valid_code, dataframes={"df": sample_dataframe}, should_plot=False
         )
 
         assert validation["valid"] is True
@@ -141,7 +131,7 @@ class TestReactLoop:
                         "row_count": 3,
                         "columns": ["year", "sex", "age", "employment_rate"],
                         "numeric_columns": ["employment_rate"],
-                        "metadata": {}
+                        "metadata": {},
                     }
                 },
                 "react_iteration": 0,
@@ -152,7 +142,7 @@ class TestReactLoop:
             "should_continue": True,
             "retrieval_context": {},
             "query_validation": {},
-            "available_years": {}
+            "available_years": {},
         }
 
         # Mock LLM to return code with reasoning
@@ -166,7 +156,7 @@ result = df.groupby('age')['employment_rate'].mean()
 ```
 """
 
-        with patch.object(analytics_agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(analytics_agent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await analytics_agent._generate_code_node(state)
@@ -194,12 +184,14 @@ result = df.groupby('age')['employment_rate'].mean()
                 "should_plot": False,
                 "react_iteration": 0,
                 "react_max_iterations": 3,
-                "react_history": [{"iteration": 0, "reasoning": "test", "action": "code", "observation": None}]
+                "react_history": [
+                    {"iteration": 0, "reasoning": "test", "action": "code", "observation": None}
+                ],
             },
             "should_continue": True,
             "retrieval_context": {},
             "query_validation": {},
-            "available_years": {}
+            "available_years": {},
         }
 
         result = await analytics_agent._evaluate_results_node(state)
@@ -228,12 +220,14 @@ result = df.groupby('age')['employment_rate'].mean()
                 "should_plot": False,
                 "react_iteration": 0,
                 "react_max_iterations": 3,
-                "react_history": [{"iteration": 0, "reasoning": "test", "action": "code", "observation": None}]
+                "react_history": [
+                    {"iteration": 0, "reasoning": "test", "action": "code", "observation": None}
+                ],
             },
             "should_continue": True,
             "retrieval_context": {},
             "query_validation": {},
-            "available_years": {}
+            "available_years": {},
         }
 
         result = await analytics_agent._evaluate_results_node(state)
@@ -262,12 +256,14 @@ result = df.groupby('age')['employment_rate'].mean()
                 "should_plot": False,
                 "react_iteration": 0,
                 "react_max_iterations": 3,
-                "react_history": [{"iteration": 0, "reasoning": "test", "action": "code", "observation": None}]
+                "react_history": [
+                    {"iteration": 0, "reasoning": "test", "action": "code", "observation": None}
+                ],
             },
             "should_continue": True,
             "retrieval_context": {},
             "query_validation": {},
-            "available_years": {}
+            "available_years": {},
         }
 
         result = await analytics_agent._evaluate_results_node(state)
@@ -296,12 +292,12 @@ result = df.groupby('age')['employment_rate'].mean()
                 "should_plot": False,
                 "react_iteration": 2,  # Already at iteration 2 (0-indexed, so this is 3rd iteration)
                 "react_max_iterations": 3,
-                "react_history": []
+                "react_history": [],
             },
             "should_continue": True,
             "retrieval_context": {},
             "query_validation": {},
-            "available_years": {}
+            "available_years": {},
         }
 
         result = await analytics_agent._evaluate_results_node(state)
@@ -312,19 +308,11 @@ result = df.groupby('age')['employment_rate'].mean()
     def test_should_retry_generation_routing(self, analytics_agent):
         """Test routing logic for ReAct loop."""
         # Test retry path
-        state_retry = {
-            "intermediate_results": {
-                "evaluation": {"should_retry": True}
-            }
-        }
+        state_retry = {"intermediate_results": {"evaluation": {"should_retry": True}}}
         assert analytics_agent._should_retry_generation(state_retry) == "retry"
 
         # Test continue path
-        state_continue = {
-            "intermediate_results": {
-                "evaluation": {"should_retry": False}
-            }
-        }
+        state_continue = {"intermediate_results": {"evaluation": {"should_retry": False}}}
         assert analytics_agent._should_retry_generation(state_continue) == "continue"
 
 
@@ -343,7 +331,7 @@ class TestReactPrompts:
             validation_context=None,
             iteration=0,
             feedback=None,
-            history=[]
+            history=[],
         )
 
         assert "ReAct Iteration 1 of 3" in prompt
@@ -363,12 +351,14 @@ class TestReactPrompts:
             validation_context=None,
             iteration=1,
             feedback="Execution error: KeyError 'sector'",
-            history=[{
-                "iteration": 0,
-                "reasoning": "Group by sector",
-                "action": "df.groupby('sector')",
-                "observation": {"error": "KeyError: 'sector'"}
-            }]
+            history=[
+                {
+                    "iteration": 0,
+                    "reasoning": "Group by sector",
+                    "action": "df.groupby('sector')",
+                    "observation": {"error": "KeyError: 'sector'"},
+                }
+            ],
         )
 
         assert "ReAct Iteration 2 of 3" in prompt
@@ -381,7 +371,7 @@ class TestReactPrompts:
         validation_context = {
             "status": "partial_match",
             "missing_concepts": ["sector"],
-            "available_alternatives": ["age", "sex"]
+            "available_alternatives": ["age", "sex"],
         }
 
         prompt = analytics_agent._build_react_prompt(
@@ -394,7 +384,7 @@ class TestReactPrompts:
             validation_context=validation_context,
             iteration=0,
             feedback=None,
-            history=[]
+            history=[],
         )
 
         assert "DATA AVAILABILITY NOTICE" in prompt

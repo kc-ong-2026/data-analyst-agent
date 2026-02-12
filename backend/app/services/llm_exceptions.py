@@ -10,8 +10,6 @@ and handling in the resilient LLM service:
 - CircuitBreakerOpenError: Circuit breaker is open, preventing calls to failing provider
 """
 
-from typing import Optional
-
 
 class LLMError(Exception):
     """
@@ -24,9 +22,9 @@ class LLMError(Exception):
     def __init__(
         self,
         message: str,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        original_error: Optional[Exception] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        original_error: Exception | None = None,
     ):
         """
         Initialize LLM error.
@@ -108,11 +106,11 @@ class TokenLimitError(LLMError):
     def __init__(
         self,
         message: str,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        original_error: Optional[Exception] = None,
-        tokens_sent: Optional[int] = None,
-        max_tokens: Optional[int] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        original_error: Exception | None = None,
+        tokens_sent: int | None = None,
+        max_tokens: int | None = None,
     ):
         """
         Initialize token limit error.
@@ -194,7 +192,7 @@ class AllProvidersFailedError(LLMError):
     def __init__(
         self,
         message: str = "All LLM providers exhausted",
-        attempted_providers: Optional[list] = None,
+        attempted_providers: list | None = None,
     ):
         """
         Initialize all providers failed error.

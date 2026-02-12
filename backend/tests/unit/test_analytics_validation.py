@@ -1,11 +1,11 @@
 """Unit tests for Analytics Agent column validation."""
 
-import pytest
+from unittest.mock import AsyncMock, patch
+
 import pandas as pd
-from unittest.mock import AsyncMock, MagicMock, patch
+import pytest
 
 from app.services.agents.analytics.agent import AnalyticsAgent
-from app.services.agents.base_agent import GraphState
 
 
 @pytest.fixture
@@ -17,12 +17,14 @@ def analytics_agent():
 @pytest.fixture
 def sample_dataframe():
     """Create sample DataFrame for testing."""
-    return pd.DataFrame({
-        "year": [2020, 2021, 2022],
-        "sex": ["Male", "Female", "Male"],
-        "age": ["25-34", "35-44", "25-34"],
-        "employment_rate": [85.2, 78.3, 86.1]
-    })
+    return pd.DataFrame(
+        {
+            "year": [2020, 2021, 2022],
+            "sex": ["Male", "Female", "Male"],
+            "age": ["25-34", "35-44", "25-34"],
+            "employment_rate": [85.2, 78.3, 86.1],
+        }
+    )
 
 
 @pytest.fixture
@@ -35,15 +37,20 @@ def sample_state(sample_dataframe):
             "dataset1": {
                 "source": "dataframe",
                 "columns": ["year", "sex", "age", "employment_rate"],
-                "dtypes": {"year": "int64", "sex": "object", "age": "object", "employment_rate": "float64"},
+                "dtypes": {
+                    "year": "int64",
+                    "sex": "object",
+                    "age": "object",
+                    "employment_rate": "float64",
+                },
                 "data": sample_dataframe.to_dict(orient="records"),
                 "metadata": {
                     "summary_text": "Employment data by sex and age",
                     "primary_dimensions": ["sex", "age"],
                     "categorical_columns": ["sex", "age"],
                     "numeric_columns": ["employment_rate"],
-                    "year_range": "2020-2022"
-                }
+                    "year_range": "2020-2022",
+                },
             }
         },
         "analysis_results": {},
@@ -64,16 +71,16 @@ def sample_state(sample_dataframe):
                         "primary_dimensions": ["sex", "age"],
                         "categorical_columns": ["sex", "age"],
                         "numeric_columns": ["employment_rate"],
-                        "year_range": "2020-2022"
-                    }
+                        "year_range": "2020-2022",
+                    },
                 }
             },
-            "has_data": True
+            "has_data": True,
         },
         "should_continue": True,
         "retrieval_context": {},
         "query_validation": {},
-        "available_years": {}
+        "available_years": {},
     }
 
 
@@ -92,7 +99,7 @@ class TestColumnValidation:
             "recommendation": "Proceed with code generation"
         }"""
 
-        with patch.object(analytics_agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(analytics_agent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await analytics_agent._validate_columns_node(sample_state)
@@ -116,7 +123,7 @@ class TestColumnValidation:
             "recommendation": "Explain what data is available"
         }"""
 
-        with patch.object(analytics_agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(analytics_agent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await analytics_agent._validate_columns_node(sample_state)
@@ -137,7 +144,7 @@ class TestColumnValidation:
             "recommendation": "Generate code with caveat about time period"
         }"""
 
-        with patch.object(analytics_agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(analytics_agent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await analytics_agent._validate_columns_node(sample_state)
@@ -155,12 +162,12 @@ class TestColumnValidation:
             "reasoning": "Dataset doesn't have sector data",
             "missing_concepts": ["technology sector"],
             "available_alternatives": ["sex", "age"],
-            "recommendation": "Suggest alternatives"
+            "recommendation": "Suggest alternatives",
         }
 
         mock_fallback = "The dataset doesn't have employment data by sector. However, I can show employment rates by sex and age for 2020-2022."
 
-        with patch.object(analytics_agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(analytics_agent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_fallback
 
             result = await analytics_agent._compose_fallback_response_node(sample_state)

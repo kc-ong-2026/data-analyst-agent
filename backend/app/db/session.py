@@ -1,8 +1,8 @@
 """Async SQLAlchemy engine and session factory."""
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -11,7 +11,7 @@ from app.config import config
 logger = logging.getLogger(__name__)
 
 engine = None
-async_session_factory: Optional[async_sessionmaker] = None
+async_session_factory: async_sessionmaker | None = None
 
 
 def init_db() -> None:

@@ -10,12 +10,10 @@ This script verifies that:
 
 import asyncio
 import logging
-from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -24,6 +22,7 @@ logger = logging.getLogger(__name__)
 async def verify_extraction_agent():
     """Verify extraction agent no longer loads sample rows."""
     from app.services.agents.extraction_agent import DataExtractionAgent
+
     from app.services.agents.base_agent import GraphState
 
     logger.info("=" * 80)
@@ -46,7 +45,7 @@ async def verify_extraction_agent():
                         "description": "Test employment data",
                         "columns": [
                             {"name": "year", "dtype": "int64"},
-                            {"name": "employment_rate", "dtype": "float64"}
+                            {"name": "employment_rate", "dtype": "float64"},
                         ],
                         "row_count": 100,
                         "score": 0.95,
@@ -113,7 +112,7 @@ async def verify_extraction_agent():
             if missing_fields:
                 logger.warning(f"   ⚠️  Missing metadata fields: {missing_fields}")
             else:
-                logger.info(f"   ✅ PASS: All required metadata fields present")
+                logger.info("   ✅ PASS: All required metadata fields present")
 
     logger.info("\n" + "=" * 80)
     return True

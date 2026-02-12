@@ -1,14 +1,12 @@
 """Embedding generator for the folder-based RAG system."""
 
 import logging
-from typing import List
 
-from sqlalchemy import text, select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config
 from app.db.models import (
-    CATEGORY_MODELS,
     EmploymentDatasetMetadata,
     HoursWorkedDatasetMetadata,
     IncomeDatasetMetadata,
@@ -70,9 +68,7 @@ class EmbeddingGenerator:
         counts["total"] = total_count
         return counts
 
-    async def _batch_embed(
-        self, embedding_service, texts: List[str]
-    ) -> List[List[float]]:
+    async def _batch_embed(self, embedding_service, texts: list[str]) -> list[list[float]]:
         """Generate embeddings in batches."""
         all_embeddings = []
 
@@ -118,7 +114,7 @@ class EmbeddingGenerator:
 
             if row_count and row_count >= 5:
                 # Use sqrt(n) lists for IVFFlat, min 1
-                lists = max(1, int(row_count ** 0.5))
+                lists = max(1, int(row_count**0.5))
 
                 try:
                     # Drop existing index if any
@@ -131,8 +127,6 @@ class EmbeddingGenerator:
                             f"USING ivfflat (embedding vector_cosine_ops) WITH (lists = {lists})"
                         )
                     )
-                    logger.info(
-                        f"Created IVFFlat index on {table_name} with {lists} lists"
-                    )
+                    logger.info(f"Created IVFFlat index on {table_name} with {lists} lists")
                 except Exception as e:
                     logger.warning(f"Could not create vector index on {table_name}: {e}")

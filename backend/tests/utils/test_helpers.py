@@ -8,11 +8,11 @@ management.
 
 import logging
 import random
-import string
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable
-from unittest.mock import Mock, AsyncMock
+from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pandas as pd
 from faker import Faker
@@ -25,10 +25,11 @@ fake = Faker()
 # Data Generation Helpers
 # ============================================================================
 
+
 def generate_income_data(
     num_rows: int = 100,
-    years: Optional[List[int]] = None,
-    age_groups: Optional[List[str]] = None,
+    years: list[int] | None = None,
+    age_groups: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Generate synthetic income dataset.
@@ -42,27 +43,27 @@ def generate_income_data(
         DataFrame with income data
     """
     years = years or [2019, 2020, 2021]
-    age_groups = age_groups or [
-        "15-24", "25-34", "35-44", "45-54", "55-64", "65+"
-    ]
+    age_groups = age_groups or ["15-24", "25-34", "35-44", "45-54", "55-64", "65+"]
     sexes = ["Male", "Female"]
 
     data = []
     for _ in range(num_rows):
-        data.append({
-            "year": random.choice(years),
-            "age_group": random.choice(age_groups),
-            "sex": random.choice(sexes),
-            "average_income": round(random.uniform(2000, 8000), 2),
-            "median_income": round(random.uniform(1800, 7500), 2),
-        })
+        data.append(
+            {
+                "year": random.choice(years),
+                "age_group": random.choice(age_groups),
+                "sex": random.choice(sexes),
+                "average_income": round(random.uniform(2000, 8000), 2),
+                "median_income": round(random.uniform(1800, 7500), 2),
+            }
+        )
 
     return pd.DataFrame(data)
 
 
 def generate_employment_data(
     num_rows: int = 100,
-    years: Optional[List[int]] = None,
+    years: list[int] | None = None,
 ) -> pd.DataFrame:
     """
     Generate synthetic employment dataset.
@@ -80,20 +81,22 @@ def generate_employment_data(
     data = []
     for _ in range(num_rows):
         employment_rate = random.uniform(0.70, 0.95)
-        data.append({
-            "year": random.choice(years),
-            "age_group": random.choice(age_groups),
-            "employment_rate": round(employment_rate, 4),
-            "unemployment_rate": round(1 - employment_rate, 4),
-            "labour_force": random.randint(10000, 500000),
-        })
+        data.append(
+            {
+                "year": random.choice(years),
+                "age_group": random.choice(age_groups),
+                "employment_rate": round(employment_rate, 4),
+                "unemployment_rate": round(1 - employment_rate, 4),
+                "labour_force": random.randint(10000, 500000),
+            }
+        )
 
     return pd.DataFrame(data)
 
 
 def generate_hours_worked_data(
     num_rows: int = 100,
-    years: Optional[List[int]] = None,
+    years: list[int] | None = None,
 ) -> pd.DataFrame:
     """
     Generate synthetic hours worked dataset.
@@ -109,12 +112,14 @@ def generate_hours_worked_data(
 
     data = []
     for _ in range(num_rows):
-        data.append({
-            "year": random.choice(years),
-            "occupation": fake.job(),
-            "average_weekly_hours": round(random.uniform(35, 50), 1),
-            "median_weekly_hours": round(random.uniform(34, 48), 1),
-        })
+        data.append(
+            {
+                "year": random.choice(years),
+                "occupation": fake.job(),
+                "average_weekly_hours": round(random.uniform(35, 50), 1),
+                "median_weekly_hours": round(random.uniform(34, 48), 1),
+            }
+        )
 
     return pd.DataFrame(data)
 
@@ -144,8 +149,9 @@ def create_temp_csv_file(
 # Mock Helpers
 # ============================================================================
 
+
 def create_mock_rag_service(
-    search_results: Optional[List[Dict[str, Any]]] = None,
+    search_results: list[dict[str, Any]] | None = None,
 ) -> Mock:
     """
     Create mocked RAG service with configurable search results.
@@ -167,13 +173,15 @@ def create_mock_rag_service(
 
     mock_service = Mock()
     mock_service.search_datasets = AsyncMock(return_value=search_results)
-    mock_service.get_dataset_metadata = AsyncMock(return_value={
-        "name": "income_2020",
-        "description": "Mock income data",
-        "columns": ["year", "age_group", "average_income"],
-        "years": [2020],
-        "categories": ["income"],
-    })
+    mock_service.get_dataset_metadata = AsyncMock(
+        return_value={
+            "name": "income_2020",
+            "description": "Mock income data",
+            "columns": ["year", "age_group", "average_income"],
+            "years": [2020],
+            "categories": ["income"],
+        }
+    )
     mock_service.get_dataset_count = AsyncMock(return_value=len(search_results))
 
     return mock_service
@@ -203,9 +211,9 @@ def create_mock_llm(
 
 def create_mock_agent_response(
     success: bool = True,
-    data: Optional[Dict[str, Any]] = None,
-    error: Optional[str] = None,
-) -> Dict[str, Any]:
+    data: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
     """
     Create mock agent response.
 
@@ -228,6 +236,7 @@ def create_mock_agent_response(
 # ============================================================================
 # Assertion Helpers
 # ============================================================================
+
 
 def assert_dataframe_equal(
     df1: pd.DataFrame,
@@ -253,8 +262,8 @@ def assert_dataframe_equal(
 
 
 def assert_dict_contains_keys(
-    data: Dict[str, Any],
-    required_keys: List[str],
+    data: dict[str, Any],
+    required_keys: list[str],
 ) -> None:
     """
     Assert dictionary contains required keys.
@@ -286,14 +295,12 @@ def assert_score_in_range(
     Raises:
         AssertionError if score out of range
     """
-    assert min_score <= score <= max_score, (
-        f"Score {score} not in range [{min_score}, {max_score}]"
-    )
+    assert min_score <= score <= max_score, f"Score {score} not in range [{min_score}, {max_score}]"
 
 
 def assert_contains_keywords(
     text: str,
-    keywords: List[str],
+    keywords: list[str],
     case_sensitive: bool = False,
 ) -> None:
     """
@@ -312,14 +319,13 @@ def assert_contains_keywords(
         keywords = [k.lower() for k in keywords]
 
     missing_keywords = [k for k in keywords if k not in text]
-    assert not missing_keywords, (
-        f"Missing keywords: {missing_keywords}\nText: {text}"
-    )
+    assert not missing_keywords, f"Missing keywords: {missing_keywords}\nText: {text}"
 
 
 # ============================================================================
 # Test Data Management
 # ============================================================================
+
 
 class TestDataManager:
     """
@@ -336,7 +342,7 @@ class TestDataManager:
             base_dir: Base directory for test data
         """
         self.base_dir = base_dir
-        self.created_files: List[Path] = []
+        self.created_files: list[Path] = []
 
     def create_dataset(
         self,
@@ -383,6 +389,7 @@ class TestDataManager:
 # Performance Measurement
 # ============================================================================
 
+
 class PerformanceTimer:
     """
     Context manager for measuring execution time.
@@ -396,8 +403,8 @@ class PerformanceTimer:
 
     def __init__(self):
         """Initialize timer."""
-        self.start_time: Optional[datetime] = None
-        self.end_time: Optional[datetime] = None
+        self.start_time: datetime | None = None
+        self.end_time: datetime | None = None
 
     def __enter__(self):
         """Start timer."""
@@ -426,7 +433,7 @@ def measure_latency(
     func: Callable,
     num_iterations: int = 10,
     **kwargs: Any,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Measure function latency statistics.
 
@@ -461,11 +468,12 @@ def measure_latency(
 # Query Generation
 # ============================================================================
 
+
 def generate_test_queries(
     num_queries: int = 10,
-    categories: Optional[List[str]] = None,
-    years: Optional[List[int]] = None,
-) -> List[Dict[str, Any]]:
+    categories: list[str] | None = None,
+    years: list[int] | None = None,
+) -> list[dict[str, Any]]:
     """
     Generate synthetic test queries.
 
@@ -508,11 +516,13 @@ def generate_test_queries(
 
         query_text = template.format(year=year, year1=year1, year2=year2)
 
-        queries.append({
-            "id": f"test_query_{i+1}",
-            "query": query_text,
-            "category": category,
-            "year": year,
-        })
+        queries.append(
+            {
+                "id": f"test_query_{i+1}",
+                "query": query_text,
+                "category": category,
+                "year": year,
+            }
+        )
 
     return queries

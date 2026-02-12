@@ -12,11 +12,10 @@ Key advantages over traditional metrics (BLEU, ROUGE):
 """
 
 import logging
-from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
+from typing import Any
 
 import torch
-from bert_score import score as bert_score
 from bert_score import BERTScorer
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ class BERTScoreResult:
     recall: float
     f1: float
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary."""
         return {
             "precision": self.precision,
@@ -38,12 +37,12 @@ class BERTScoreResult:
             "f1": self.f1,
         }
 
-    def meets_thresholds(self, thresholds: Dict[str, float]) -> bool:
+    def meets_thresholds(self, thresholds: dict[str, float]) -> bool:
         """Check if all metrics meet their thresholds."""
         return (
-            self.precision >= thresholds.get("precision", 0.0) and
-            self.recall >= thresholds.get("recall", 0.0) and
-            self.f1 >= thresholds.get("f1", 0.0)
+            self.precision >= thresholds.get("precision", 0.0)
+            and self.recall >= thresholds.get("recall", 0.0)
+            and self.f1 >= thresholds.get("f1", 0.0)
         )
 
 
@@ -55,7 +54,7 @@ class BERTScoreEvaluator:
     generated text and reference text using transformer-based embeddings.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize BERTScore evaluator.
 
@@ -138,9 +137,9 @@ class BERTScoreEvaluator:
 
     def evaluate_batch(
         self,
-        candidates: List[str],
-        references: List[str],
-    ) -> List[BERTScoreResult]:
+        candidates: list[str],
+        references: list[str],
+    ) -> list[BERTScoreResult]:
         """
         Evaluate a batch of candidate-reference pairs.
 
@@ -159,10 +158,7 @@ class BERTScoreEvaluator:
 
         if self.scorer is None:
             logger.warning("BERTScorer not initialized, returning default scores")
-            return [
-                BERTScoreResult(precision=0.0, recall=0.0, f1=0.0)
-                for _ in candidates
-            ]
+            return [BERTScoreResult(precision=0.0, recall=0.0, f1=0.0) for _ in candidates]
 
         logger.info(f"Evaluating batch of {len(candidates)} pairs")
 
@@ -171,8 +167,8 @@ class BERTScoreEvaluator:
             all_P, all_R, all_F1 = [], [], []
 
             for i in range(0, len(candidates), self.batch_size):
-                batch_cands = candidates[i:i + self.batch_size]
-                batch_refs = references[i:i + self.batch_size]
+                batch_cands = candidates[i : i + self.batch_size]
+                batch_refs = references[i : i + self.batch_size]
 
                 P, R, F1 = self.scorer.score(batch_cands, batch_refs)
 
@@ -200,16 +196,13 @@ class BERTScoreEvaluator:
 
         except Exception as e:
             logger.error(f"Error during batch BERTScore evaluation: {e}")
-            return [
-                BERTScoreResult(precision=0.0, recall=0.0, f1=0.0)
-                for _ in candidates
-            ]
+            return [BERTScoreResult(precision=0.0, recall=0.0, f1=0.0) for _ in candidates]
 
     def evaluate_with_threshold(
         self,
-        candidates: List[str],
-        references: List[str],
-    ) -> Tuple[List[BERTScoreResult], int, int]:
+        candidates: list[str],
+        references: list[str],
+    ) -> tuple[list[BERTScoreResult], int, int]:
         """
         Evaluate batch and count results meeting thresholds.
 
@@ -222,22 +215,14 @@ class BERTScoreEvaluator:
         """
         results = self.evaluate_batch(candidates, references)
 
-        num_passed = sum(
-            1 for r in results if r.meets_thresholds(self.thresholds)
-        )
+        num_passed = sum(1 for r in results if r.meets_thresholds(self.thresholds))
         num_failed = len(results) - num_passed
 
-        logger.info(
-            f"Threshold check: {num_passed}/{len(results)} passed, "
-            f"{num_failed} failed"
-        )
+        logger.info(f"Threshold check: {num_passed}/{len(results)} passed, " f"{num_failed} failed")
 
         return results, num_passed, num_failed
 
-    def get_aggregate_scores(
-        self,
-        results: List[BERTScoreResult]
-    ) -> BERTScoreResult:
+    def get_aggregate_scores(self, results: list[BERTScoreResult]) -> BERTScoreResult:
         """
         Compute aggregate (average) scores from a list of results.
 
@@ -262,10 +247,10 @@ class BERTScoreEvaluator:
 
     @staticmethod
     def compare_models(
-        candidates: List[str],
-        references: List[str],
-        models: List[str],
-    ) -> Dict[str, BERTScoreResult]:
+        candidates: list[str],
+        references: list[str],
+        models: list[str],
+    ) -> dict[str, BERTScoreResult]:
         """
         Compare BERTScore using different models.
 

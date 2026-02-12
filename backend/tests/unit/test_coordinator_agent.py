@@ -10,14 +10,9 @@ Tests the coordinator agent's ability to:
 NOTE: These are TRUE unit tests with mocked LLM calls for fast execution.
 """
 
-import pytest
-from typing import Dict, Any
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch
 
-from tests.utils.test_helpers import (
-    create_mock_llm,
-    assert_dict_contains_keys,
-)
+import pytest
 
 
 def create_mock_llm_response(content: str):
@@ -34,24 +29,32 @@ class TestQueryAnalysis:
     @pytest.mark.asyncio
     async def test_simple_query_intent_extraction(self, mock_graph_state):
         """Test extraction of intent from simple query."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         # Mock LLM responses for each node in the workflow
         mock_llm_responses = [
             # analyze_query response
-            create_mock_llm_response("""{"intent": "get_average", "data_type": "income", "time_scope": "2020", "filters": {}}"""),
+            create_mock_llm_response(
+                """{"intent": "get_average", "data_type": "income", "time_scope": "2020", "filters": {}}"""
+            ),
             # identify_data_sources response
-            create_mock_llm_response("""{"required_datasets": ["income_2020"], "categories": ["income"]}"""),
+            create_mock_llm_response(
+                """{"required_datasets": ["income_2020"], "categories": ["income"]}"""
+            ),
             # create_plan response
-            create_mock_llm_response("""{"steps": [{"task": "Extract income data", "agent": "extraction"}], "visualization_suggested": false}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract income data", "agent": "extraction"}], "visualization_suggested": false}"""
+            ),
             # determine_delegation response
-            create_mock_llm_response("""{"next_agent": "extraction", "reason": "Need to extract income data"}"""),
+            create_mock_llm_response(
+                """{"next_agent": "extraction", "reason": "Need to extract income data"}"""
+            ),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -68,24 +71,34 @@ class TestQueryAnalysis:
     @pytest.mark.asyncio
     async def test_complex_query_intent_extraction(self, mock_graph_state):
         """Test extraction of intent from complex multi-part query."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
-            create_mock_llm_response("""{"intent": "compare", "data_type": "income", "time_scope": "2019-2020", "filters": {"sex": ["male", "female"]}, "visualization": true}"""),
-            create_mock_llm_response("""{"required_datasets": ["income_2019", "income_2020"], "categories": ["income"], "filters": {"years": [2019, 2020]}}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract income data", "agent": "extraction"}, {"task": "Compare and visualize", "agent": "analytics"}], "visualization_suggested": true}"""),
-            create_mock_llm_response("""{"next_agent": "extraction", "reason": "Need to extract data first"}"""),
+            create_mock_llm_response(
+                """{"intent": "compare", "data_type": "income", "time_scope": "2019-2020", "filters": {"sex": ["male", "female"]}, "visualization": true}"""
+            ),
+            create_mock_llm_response(
+                """{"required_datasets": ["income_2019", "income_2020"], "categories": ["income"], "filters": {"years": [2019, 2020]}}"""
+            ),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract income data", "agent": "extraction"}, {"task": "Compare and visualize", "agent": "analytics"}], "visualization_suggested": true}"""
+            ),
+            create_mock_llm_response(
+                """{"next_agent": "extraction", "reason": "Need to extract data first"}"""
+            ),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
             state = mock_graph_state.copy()
-            state["query"] = "Compare average income between males and females in 2019 and 2020, and show me a chart"
+            state["query"] = (
+                "Compare average income between males and females in 2019 and 2020, and show me a chart"
+            )
 
             response = await agent.execute(state)
 
@@ -99,25 +112,34 @@ class TestQueryAnalysis:
                     # steps is a list of dicts, extract task/agent fields
                     step_texts = [str(s).lower() for s in steps]
                     # Should include relevant terms
-                    assert any("extract" in s or "retrieve" in s or "data" in s for s in step_texts) or \
-                           any("visuali" in s or "chart" in s for s in step_texts)
+                    assert any(
+                        "extract" in s or "retrieve" in s or "data" in s for s in step_texts
+                    ) or any("visuali" in s or "chart" in s for s in step_texts)
 
     @pytest.mark.asyncio
     async def test_visualization_intent_detection(self, mock_graph_state):
         """Test detection of visualization request in query."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
-            create_mock_llm_response("""{"intent": "visualize", "data_type": "employment", "time_scope": "2020", "visualization": true}"""),
-            create_mock_llm_response("""{"required_datasets": ["employment_2020"], "categories": ["employment"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract employment data", "agent": "extraction"}, {"task": "Create bar chart", "agent": "analytics"}], "visualization_suggested": true}"""),
-            create_mock_llm_response("""{"next_agent": "extraction", "reason": "Need data first"}"""),
+            create_mock_llm_response(
+                """{"intent": "visualize", "data_type": "employment", "time_scope": "2020", "visualization": true}"""
+            ),
+            create_mock_llm_response(
+                """{"required_datasets": ["employment_2020"], "categories": ["employment"]}"""
+            ),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract employment data", "agent": "extraction"}, {"task": "Create bar chart", "agent": "analytics"}], "visualization_suggested": true}"""
+            ),
+            create_mock_llm_response(
+                """{"next_agent": "extraction", "reason": "Need data first"}"""
+            ),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -140,19 +162,25 @@ class TestDataSourceIdentification:
     @pytest.mark.asyncio
     async def test_single_dataset_identification(self, mock_graph_state):
         """Test identification of single dataset requirement."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
-            create_mock_llm_response("""{"intent": "get_average", "data_type": "income", "time_scope": "2020"}"""),
-            create_mock_llm_response("""{"required_datasets": ["income_2020"], "categories": ["income"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract income data", "agent": "extraction"}]}"""),
+            create_mock_llm_response(
+                """{"intent": "get_average", "data_type": "income", "time_scope": "2020"}"""
+            ),
+            create_mock_llm_response(
+                """{"required_datasets": ["income_2020"], "categories": ["income"]}"""
+            ),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract income data", "agent": "extraction"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -177,19 +205,25 @@ class TestDataSourceIdentification:
     @pytest.mark.asyncio
     async def test_multiple_dataset_identification(self, mock_graph_state):
         """Test identification of multiple dataset requirements."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
-            create_mock_llm_response("""{"intent": "compare", "data_type": "employment", "time_scope": "2019-2020"}"""),
-            create_mock_llm_response("""{"required_datasets": ["employment_2019", "employment_2020"], "categories": ["employment"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract employment data for both years", "agent": "extraction"}]}"""),
+            create_mock_llm_response(
+                """{"intent": "compare", "data_type": "employment", "time_scope": "2019-2020"}"""
+            ),
+            create_mock_llm_response(
+                """{"required_datasets": ["employment_2019", "employment_2020"], "categories": ["employment"]}"""
+            ),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract employment data for both years", "agent": "extraction"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -215,19 +249,25 @@ class TestDataSourceIdentification:
     @pytest.mark.asyncio
     async def test_year_filtered_identification(self, mock_graph_state):
         """Test that year filtering is included in data requirements."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
-            create_mock_llm_response("""{"intent": "get_data", "data_type": "income", "time_scope": "2020"}"""),
-            create_mock_llm_response("""{"required_datasets": ["income_2020"], "filters": {"year": 2020}}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract income data for 2020", "agent": "extraction"}]}"""),
+            create_mock_llm_response(
+                """{"intent": "get_data", "data_type": "income", "time_scope": "2020"}"""
+            ),
+            create_mock_llm_response(
+                """{"required_datasets": ["income_2020"], "filters": {"year": 2020}}"""
+            ),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract income data for 2020", "agent": "extraction"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -255,19 +295,21 @@ class TestWorkflowPlanning:
     @pytest.mark.asyncio
     async def test_simple_workflow_plan(self, mock_graph_state):
         """Test creation of simple workflow plan."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
             create_mock_llm_response("""{"intent": "get_average"}"""),
             create_mock_llm_response("""{"required_datasets": ["income_2020"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Calculate average", "agent": "analytics"}]}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Calculate average", "agent": "analytics"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -290,19 +332,21 @@ class TestWorkflowPlanning:
     @pytest.mark.asyncio
     async def test_multi_step_workflow_plan(self, mock_graph_state):
         """Test creation of multi-step workflow plan."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
             create_mock_llm_response("""{"intent": "compare_and_visualize"}"""),
             create_mock_llm_response("""{"required_datasets": ["income_2019", "income_2020"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Compare", "agent": "analytics"}, {"task": "Create chart", "agent": "analytics"}]}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Compare", "agent": "analytics"}, {"task": "Create chart", "agent": "analytics"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -328,19 +372,21 @@ class TestWorkflowPlanning:
     @pytest.mark.asyncio
     async def test_plan_with_visualization(self, mock_graph_state):
         """Test that plan includes visualization when requested."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
             create_mock_llm_response("""{"intent": "visualize"}"""),
             create_mock_llm_response("""{"required_datasets": ["employment_2020"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Create chart", "agent": "analytics"}], "visualization_suggested": true}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Create chart", "agent": "analytics"}], "visualization_suggested": true}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -364,19 +410,23 @@ class TestAgentDelegation:
     @pytest.mark.asyncio
     async def test_delegates_to_extraction_agent(self, mock_graph_state):
         """Test that coordinator delegates to extraction agent."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
             create_mock_llm_response("""{"intent": "get_data"}"""),
             create_mock_llm_response("""{"required_datasets": ["income_2020"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract data", "agent": "extraction"}]}"""),
-            create_mock_llm_response("""{"next_agent": "extraction", "reason": "Need to extract data"}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract data", "agent": "extraction"}]}"""
+            ),
+            create_mock_llm_response(
+                """{"next_agent": "extraction", "reason": "Need to extract data"}"""
+            ),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -401,19 +451,21 @@ class TestAgentDelegation:
     @pytest.mark.asyncio
     async def test_plan_includes_analytics_step(self, mock_graph_state):
         """Test that plan includes analytics when needed."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
             create_mock_llm_response("""{"intent": "analyze"}"""),
             create_mock_llm_response("""{"required_datasets": ["income_2020"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Calculate average", "agent": "analytics"}]}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract data", "agent": "extraction"}, {"task": "Calculate average", "agent": "analytics"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -437,8 +489,8 @@ class TestStatePassingAndStructure:
     @pytest.mark.asyncio
     async def test_workflow_plan_structure(self, mock_graph_state):
         """Test that workflow plan has required structure."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
@@ -449,7 +501,7 @@ class TestStatePassingAndStructure:
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -471,8 +523,8 @@ class TestStatePassingAndStructure:
     @pytest.mark.asyncio
     async def test_updates_graph_state(self, mock_graph_state):
         """Test that agent returns valid response structure."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
@@ -483,7 +535,7 @@ class TestStatePassingAndStructure:
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -505,8 +557,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_handles_missing_validation(self, mock_graph_state):
         """Test handling when query validation is missing."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
@@ -517,7 +569,7 @@ class TestEdgeCases:
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
@@ -533,24 +585,28 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_handles_complex_comparison_query(self, mock_graph_state):
         """Test handling of complex comparison query."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
 
         mock_llm_responses = [
             create_mock_llm_response("""{"intent": "complex_comparison"}"""),
             create_mock_llm_response("""{"required_datasets": ["income_2019", "income_2020"]}"""),
-            create_mock_llm_response("""{"steps": [{"task": "Extract multi-year data", "agent": "extraction"}, {"task": "Compare demographics", "agent": "analytics"}]}"""),
+            create_mock_llm_response(
+                """{"steps": [{"task": "Extract multi-year data", "agent": "extraction"}, {"task": "Compare demographics", "agent": "analytics"}]}"""
+            ),
             create_mock_llm_response("""{"next_agent": "extraction"}"""),
         ]
 
-        with patch.object(DataCoordinatorAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataCoordinatorAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataCoordinatorAgent(config)
             state = mock_graph_state.copy()
-            state["query"] = "Compare income between males and females across age groups in 2019 vs 2020"
+            state["query"] = (
+                "Compare income between males and females across age groups in 2019 vs 2020"
+            )
             state["query_validation"] = {
                 "is_valid": True,
                 "topic": "income",

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def run_ingestion() -> None:
     """Run the full ingestion pipeline."""
-    from app.db.session import init_db, get_db, close_db
+    from app.db.session import close_db, get_db, init_db
     from app.services.ingestion.data_processor import DataProcessor
     from app.services.ingestion.embedding_generator import EmbeddingGenerator
 

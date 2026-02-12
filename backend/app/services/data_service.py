@@ -1,8 +1,7 @@
 """Service for handling data loading and processing."""
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -19,20 +18,22 @@ class DataService:
         self.api_specs_path = Path(
             config.yaml_config.get("data", {}).get("api_specs_path", "../api_spec")
         )
-        self._datasets_cache: Dict[str, pd.DataFrame] = {}
+        self._datasets_cache: dict[str, pd.DataFrame] = {}
 
-    def get_available_datasets(self) -> List[Dict[str, str]]:
+    def get_available_datasets(self) -> list[dict[str, str]]:
         """Get list of available datasets."""
         datasets = []
 
         if self.datasets_path.exists():
             for file_path in self.datasets_path.rglob("*"):
                 if file_path.suffix.lower() in [".csv", ".xlsx", ".xls"]:
-                    datasets.append({
-                        "name": file_path.stem,
-                        "path": str(file_path.relative_to(self.datasets_path)),
-                        "type": file_path.suffix.lower(),
-                    })
+                    datasets.append(
+                        {
+                            "name": file_path.stem,
+                            "path": str(file_path.relative_to(self.datasets_path)),
+                            "type": file_path.suffix.lower(),
+                        }
+                    )
 
         return datasets
 
@@ -56,7 +57,7 @@ class DataService:
         self._datasets_cache[str(full_path)] = df
         return df
 
-    def get_dataset_info(self, dataset_path: str) -> Dict[str, Any]:
+    def get_dataset_info(self, dataset_path: str) -> dict[str, Any]:
         """Get information about a dataset."""
         df = self.load_dataset(dataset_path)
         return {
@@ -69,10 +70,10 @@ class DataService:
     def query_dataset(
         self,
         dataset_path: str,
-        query: Optional[str] = None,
-        columns: Optional[List[str]] = None,
+        query: str | None = None,
+        columns: list[str] | None = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query a dataset with optional filtering."""
         df = self.load_dataset(dataset_path)
 
@@ -95,15 +96,13 @@ class DataService:
         y_column: str,
         chart_type: str = "bar",
         limit: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Prepare data for visualization."""
         df = self.load_dataset(dataset_path)
 
         if x_column not in df.columns or y_column not in df.columns:
             available = list(df.columns)
-            raise ValueError(
-                f"Columns not found. Available: {available}"
-            )
+            raise ValueError(f"Columns not found. Available: {available}")
 
         viz_df = df[[x_column, y_column]].dropna().head(limit)
 

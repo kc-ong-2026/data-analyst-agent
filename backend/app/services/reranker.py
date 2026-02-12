@@ -1,7 +1,7 @@
 """Cross-encoder reranker for improving retrieval relevance."""
 
 import logging
-from typing import List, Tuple
+
 from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
@@ -22,9 +22,9 @@ class CrossEncoderReranker:
     def rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         top_k: int = 10,
-    ) -> List[Tuple[int, float]]:
+    ) -> list[tuple[int, float]]:
         """Rerank documents by semantic relevance to query.
 
         Args:
@@ -45,22 +45,18 @@ class CrossEncoderReranker:
         scores = self.model.predict(pairs)
 
         # Sort by score descending
-        ranked_indices = sorted(
-            range(len(scores)),
-            key=lambda i: scores[i],
-            reverse=True
-        )[:top_k]
+        ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
         return [(idx, float(scores[idx])) for idx in ranked_indices]
 
     def rerank_with_threshold(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         threshold: float = 0.5,
         min_results: int = 1,
         max_results: int = 5,
-    ) -> List[Tuple[int, float]]:
+    ) -> list[tuple[int, float]]:
         """Rerank and filter by confidence threshold.
 
         Args:

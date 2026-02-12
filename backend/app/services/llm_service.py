@@ -2,10 +2,9 @@
 
 import hashlib
 import logging
-from typing import Dict, List, Optional
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.config import config
@@ -18,10 +17,10 @@ class LLMService:
 
     def __init__(
         self,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         if provider is None:
             llm_config = config.get_llm_config()
@@ -30,7 +29,7 @@ class LLMService:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self._llm: Optional[BaseChatModel] = None
+        self._llm: BaseChatModel | None = None
 
     def _get_llm(self) -> BaseChatModel:
         """Get LLM instance based on provider configuration."""
@@ -40,10 +39,14 @@ class LLMService:
         llm_config = config.get_llm_config(self.provider)
         model_name = self.model or llm_config["model"]
         # Use provided parameters or fall back to config
-        temperature = self.temperature if self.temperature is not None else llm_config["temperature"]
+        temperature = (
+            self.temperature if self.temperature is not None else llm_config["temperature"]
+        )
         max_tokens = self.max_tokens if self.max_tokens is not None else llm_config["max_tokens"]
 
-        logger.info(f"Initializing LLM: provider={self.provider}, model={model_name}, temperature={temperature}, max_tokens={max_tokens}")
+        logger.info(
+            f"Initializing LLM: provider={self.provider}, model={model_name}, temperature={temperature}, max_tokens={max_tokens}"
+        )
 
         if self.provider == "openai":
             from langchain_openai import ChatOpenAI
@@ -57,7 +60,9 @@ class LLMService:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 api_key=provider_api_key,
-                model_kwargs={"stream_options": {"include_usage": True}},  # Enable token usage tracking
+                model_kwargs={
+                    "stream_options": {"include_usage": True}
+                },  # Enable token usage tracking
             )
 
         elif self.provider == "anthropic":
@@ -103,8 +108,8 @@ class LLMService:
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
-        chat_history: Optional[List[Dict[str, str]]] = None,
+        system_prompt: str | None = None,
+        chat_history: list[dict[str, str]] | None = None,
     ) -> str:
         """
         Generate a response from the LLM with error classification.
@@ -157,18 +162,16 @@ class LLMService:
         except Exception as e:
             # Convert provider-specific errors to custom exceptions
             from app.services.llm_exceptions import (
-                TransientLLMError,
                 PermanentLLMError,
                 TokenLimitError,
+                TransientLLMError,
             )
 
             error_str = str(e).lower()
 
             # Check for transient errors (should retry)
             if self._is_transient_error(e):
-                logger.warning(
-                    f"Transient LLM error: {self.provider}/{self.model} - {e}"
-                )
+                logger.warning(f"Transient LLM error: {self.provider}/{self.model} - {e}")
                 raise TransientLLMError(
                     str(e),
                     provider=self.provider,
@@ -177,16 +180,17 @@ class LLMService:
                 )
 
             # Check for token limit errors (need larger context model)
-            if any(keyword in error_str for keyword in [
-                "context_length_exceeded",
-                "maximum_context_length",
-                "token_limit",
-                "tokens",
-                "too many tokens",
-            ]):
-                logger.warning(
-                    f"Token limit error: {self.provider}/{self.model} - {e}"
-                )
+            if any(
+                keyword in error_str
+                for keyword in [
+                    "context_length_exceeded",
+                    "maximum_context_length",
+                    "token_limit",
+                    "tokens",
+                    "too many tokens",
+                ]
+            ):
+                logger.warning(f"Token limit error: {self.provider}/{self.model} - {e}")
                 raise TokenLimitError(
                     str(e),
                     provider=self.provider,
@@ -196,9 +200,7 @@ class LLMService:
 
             # Check for permanent errors (should fallback to different provider)
             if self._is_permanent_error(e):
-                logger.error(
-                    f"Permanent LLM error: {self.provider}/{self.model} - {e}"
-                )
+                logger.error(f"Permanent LLM error: {self.provider}/{self.model} - {e}")
                 raise PermanentLLMError(
                     str(e),
                     provider=self.provider,
@@ -207,9 +209,7 @@ class LLMService:
                 )
 
             # Unknown error, log and re-raise
-            logger.error(
-                f"Unknown LLM error: {self.provider}/{self.model} - {e}"
-            )
+            logger.error(f"Unknown LLM error: {self.provider}/{self.model} - {e}")
             raise
 
     def _is_transient_error(self, error: Exception) -> bool:
@@ -231,20 +231,25 @@ class LLMService:
             True if error is transient, False otherwise
         """
         # Check HTTP status codes
-        if hasattr(error, 'status_code'):
+        if hasattr(error, "status_code"):
             return error.status_code in {429, 503, 504, 408}
 
         # Check for timeout and connection errors
         import asyncio
+
         try:
             import httpx
-            return isinstance(error, (
-                asyncio.TimeoutError,
-                httpx.TimeoutException,
-                httpx.ConnectError,
-                httpx.NetworkError,
-                httpx.RemoteProtocolError,
-            ))
+
+            return isinstance(
+                error,
+                (
+                    asyncio.TimeoutError,
+                    httpx.TimeoutException,
+                    httpx.ConnectError,
+                    httpx.NetworkError,
+                    httpx.RemoteProtocolError,
+                ),
+            )
         except ImportError:
             # If httpx not available, just check asyncio timeout
             return isinstance(error, asyncio.TimeoutError)
@@ -265,7 +270,7 @@ class LLMService:
         Returns:
             True if error is permanent, False otherwise
         """
-        if hasattr(error, 'status_code'):
+        if hasattr(error, "status_code"):
             return error.status_code in {400, 401, 403, 402}
         return False
 
@@ -275,18 +280,18 @@ class EmbeddingService:
 
     def __init__(
         self,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
+        provider: str | None = None,
+        model: str | None = None,
     ):
         if provider is None:
             embed_config = config.get_embedding_config()
             provider = embed_config["provider"]
         self.provider = provider
         self.model = model
-        self._embeddings: Optional[Embeddings] = None
+        self._embeddings: Embeddings | None = None
 
         # LRU cache for embeddings (SHA256 hash -> embedding vector)
-        self._embedding_cache: Dict[str, List[float]] = {}
+        self._embedding_cache: dict[str, list[float]] = {}
         self._cache_size = 1000
         self._cache_hits = 0
         self._cache_misses = 0
@@ -333,11 +338,11 @@ class EmbeddingService:
         """Get the embeddings instance."""
         return self._get_embeddings()
 
-    async def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of texts."""
         return await self.embeddings.aembed_documents(texts)
 
-    async def embed_query(self, query: str, use_cache: bool = True) -> List[float]:
+    async def embed_query(self, query: str, use_cache: bool = True) -> list[float]:
         """Embed a single query with LRU caching.
 
         Args:
@@ -380,14 +385,16 @@ class EmbeddingService:
                 # Remove oldest entry (first key in dict)
                 oldest_key = next(iter(self._embedding_cache))
                 del self._embedding_cache[oldest_key]
-                logger.debug(f"[EMBEDDING CACHE] Evicted oldest entry, cache size={len(self._embedding_cache)}")
+                logger.debug(
+                    f"[EMBEDDING CACHE] Evicted oldest entry, cache size={len(self._embedding_cache)}"
+                )
 
             # Add to cache
             self._embedding_cache[query_hash] = result
 
         return result
 
-    def get_cache_stats(self) -> Dict[str, any]:
+    def get_cache_stats(self) -> dict[str, any]:
         """Get embedding cache statistics.
 
         Returns:
@@ -407,22 +414,24 @@ class EmbeddingService:
     def clear_cache(self) -> None:
         """Clear the embedding cache."""
         self._embedding_cache.clear()
-        logger.info(f"[EMBEDDING CACHE] Cache cleared")
+        logger.info("[EMBEDDING CACHE] Cache cleared")
 
 
 def get_llm_service(
-    provider: Optional[str] = None,
-    model: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
+    provider: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> LLMService:
     """Factory function to get LLM service."""
-    return LLMService(provider=provider, model=model, temperature=temperature, max_tokens=max_tokens)
+    return LLMService(
+        provider=provider, model=model, temperature=temperature, max_tokens=max_tokens
+    )
 
 
 def get_embedding_service(
-    provider: Optional[str] = None,
-    model: Optional[str] = None,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> EmbeddingService:
     """Factory function to get embedding service."""
     return EmbeddingService(provider=provider, model=model)

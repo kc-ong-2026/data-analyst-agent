@@ -1,18 +1,17 @@
 """Chat API routes with LangGraph checkpoint support."""
 
-import asyncio
 import json
 import logging
 import uuid
-from typing import AsyncGenerator, Dict, List
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.models import (
+    ChatMessage,
     ChatRequest,
     ChatResponse,
-    ChatMessage,
     VisualizationData,
 )
 from app.services.agents.orchestrator import get_orchestrator
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # In-memory conversation storage (use Redis/DB in production)
-conversations: Dict[str, List[ChatMessage]] = {}
+conversations: dict[str, list[ChatMessage]] = {}
 
 
 @router.post("/stream")
@@ -63,17 +62,14 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                     ]
 
                 # LangGraph config
-                config = {
-                    "configurable": {
-                        "thread_id": conversation_id
-                    }
-                }
+                config = {"configurable": {"thread_id": conversation_id}}
 
                 # Initialize orchestrator
                 orchestrator = get_orchestrator()
 
                 # Prepare initial state
                 from app.services.agents.base_agent import AgentState
+
                 state = AgentState()
                 state.current_task = request.message
                 for msg_dict in chat_history:
@@ -121,8 +117,23 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
 
                     # Agent node completed
                     elif event_type == "on_chain_end":
-                        if any(name in event_name.lower() for name in ["verification", "coordinator", "extraction", "analytics"]):
-                            agent_name = next((name for name in ["verification", "coordinator", "extraction", "analytics"] if name in event_name.lower()), None)
+                        if any(
+                            name in event_name.lower()
+                            for name in ["verification", "coordinator", "extraction", "analytics"]
+                        ):
+                            agent_name = next(
+                                (
+                                    name
+                                    for name in [
+                                        "verification",
+                                        "coordinator",
+                                        "extraction",
+                                        "analytics",
+                                    ]
+                                    if name in event_name.lower()
+                                ),
+                                None,
+                            )
                             if agent_name:
                                 yield f"data: {json.dumps({'type': 'agent', 'agent': agent_name, 'status': 'complete'})}\n\n"
 
@@ -136,18 +147,30 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 # Reconstruct final response
                 if final_state:
                     # Send visualization if available
-                    if request.include_visualization and final_state.get("analysis_results", {}).get("visualization"):
+                    if request.include_visualization and final_state.get(
+                        "analysis_results", {}
+                    ).get("visualization"):
                         viz = final_state["analysis_results"]["visualization"]
                         yield f"data: {json.dumps({'type': 'visualization', 'visualization': viz})}\n\n"
 
                     # Send complete message
-                    full_message = "".join(message_buffer) if message_buffer else final_state.get("analysis_results", {}).get("explanation", "Analysis complete")
+                    full_message = (
+                        "".join(message_buffer)
+                        if message_buffer
+                        else final_state.get("analysis_results", {}).get(
+                            "explanation", "Analysis complete"
+                        )
+                    )
 
                     # Store conversation
                     if conversation_id not in conversations:
                         conversations[conversation_id] = []
-                    conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
-                    conversations[conversation_id].append(ChatMessage(role="assistant", content=full_message))
+                    conversations[conversation_id].append(
+                        ChatMessage(role="user", content=request.message)
+                    )
+                    conversations[conversation_id].append(
+                        ChatMessage(role="assistant", content=full_message)
+                    )
 
                 # Send done event
                 yield f"data: {json.dumps({'type': 'done', 'message': 'Stream complete'})}\n\n"
@@ -163,7 +186,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
-            }
+            },
         )
 
     except HTTPException:
@@ -197,18 +220,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
         chat_history = []
         if conversation_id in conversations:
             chat_history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in conversations[conversation_id]
+                {"role": msg.role, "content": msg.content} for msg in conversations[conversation_id]
             ]
             logger.info(f"Loaded {len(chat_history)} previous messages")
 
         # LangGraph config with thread_id for checkpoint support
         # Same thread_id = automatic resume if graph was interrupted
-        config = {
-            "configurable": {
-                "thread_id": conversation_id  # This is the magic!
-            }
-        }
+        config = {"configurable": {"thread_id": conversation_id}}  # This is the magic!
 
         # Initialize orchestrator
         logger.info("Initializing orchestrator and agents...")
@@ -223,7 +241,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
             chat_history=chat_history,
             config=config,  # Pass config with thread_id
         )
-        logger.info(f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}")
+        logger.info(
+            f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}"
+        )
 
         # Check if verification failed (topic invalid - not pausable)
         validation = result.get("query_validation", {})
@@ -238,7 +258,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     "validation_failed": True,
                     "validation_details": validation,
                     "agents_used": result.get("metadata", {}).get("agents_used", []),
-                }
+                },
             )
 
         if result.get("error") and not result.get("message"):
@@ -248,9 +268,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         if conversation_id not in conversations:
             conversations[conversation_id] = []
 
-        conversations[conversation_id].append(
-            ChatMessage(role="user", content=request.message)
-        )
+        conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
         conversations[conversation_id].append(
             ChatMessage(role="assistant", content=result["message"])
         )
@@ -289,7 +307,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @router.get("/agents")
-async def list_agents() -> Dict:
+async def list_agents() -> dict:
     """List all available agents in the system."""
     orchestrator = get_orchestrator()
     return {
@@ -320,7 +338,7 @@ async def list_agents() -> Dict:
 
 
 @router.get("/history/{conversation_id}")
-async def get_conversation_history(conversation_id: str) -> Dict:
+async def get_conversation_history(conversation_id: str) -> dict:
     """Get conversation history."""
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -335,7 +353,7 @@ async def get_conversation_history(conversation_id: str) -> Dict:
 
 
 @router.delete("/history/{conversation_id}")
-async def clear_conversation(conversation_id: str) -> Dict:
+async def clear_conversation(conversation_id: str) -> dict:
     """Clear conversation history."""
     if conversation_id in conversations:
         del conversations[conversation_id]
@@ -344,7 +362,7 @@ async def clear_conversation(conversation_id: str) -> Dict:
 
 
 @router.get("/conversations")
-async def list_conversations() -> Dict:
+async def list_conversations() -> dict:
     """List all conversation IDs."""
     return {
         "conversations": list(conversations.keys()),

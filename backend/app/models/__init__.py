@@ -10,15 +10,6 @@ This package contains all data models used across the application:
 """
 
 # API models (external contracts)
-from .api_models import (
-    ChatMessage,
-    ChatRequest,
-    ChatResponse,
-    ConversationHistory,
-    HealthResponse,
-    VisualizationData,
-)
-
 # Common agent models
 from .agent_common import (
     AgentTraceEntry,
@@ -28,10 +19,17 @@ from .agent_common import (
     YearRange,
 )
 
-# Verification agent models
-from .verification_models import (
-    DimensionCheckResult,
-    QueryValidationResult,
+# Analytics agent models
+from .analytics_models import (
+    AnalysisResult,
+)
+from .api_models import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ConversationHistory,
+    HealthResponse,
+    VisualizationData,
 )
 
 # Coordinator agent models
@@ -53,9 +51,10 @@ from .extraction_models import (
     TableSchema,
 )
 
-# Analytics agent models
-from .analytics_models import (
-    AnalysisResult,
+# Verification agent models
+from .verification_models import (
+    DimensionCheckResult,
+    QueryValidationResult,
 )
 
 __all__ = [

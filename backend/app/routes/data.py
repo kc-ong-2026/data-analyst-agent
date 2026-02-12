@@ -1,6 +1,6 @@
 """Data API routes."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -12,18 +12,20 @@ router = APIRouter(prefix="/data", tags=["data"])
 
 class SearchRequest(BaseModel):
     """Request model for RAG search."""
+
     query: str
-    category: Optional[str] = None
-    year_start: Optional[int] = None
-    year_end: Optional[int] = None
+    category: str | None = None
+    year_start: int | None = None
+    year_end: int | None = None
     top_k: int = 10
 
 
 @router.post("/search")
-async def search_data(request: SearchRequest) -> Dict[str, Any]:
+async def search_data(request: SearchRequest) -> dict[str, Any]:
     """Search datasets using hybrid RAG retrieval."""
     try:
         from app.db.session import async_session_factory
+
         if async_session_factory is None:
             raise HTTPException(
                 status_code=503,
@@ -82,7 +84,7 @@ async def search_data(request: SearchRequest) -> Dict[str, Any]:
 
 
 @router.get("/datasets")
-async def list_datasets() -> Dict[str, Any]:
+async def list_datasets() -> dict[str, Any]:
     """List all available datasets."""
     datasets = data_service.get_available_datasets()
     return {
@@ -92,7 +94,7 @@ async def list_datasets() -> Dict[str, Any]:
 
 
 @router.get("/datasets/{dataset_path:path}/info")
-async def get_dataset_info(dataset_path: str) -> Dict[str, Any]:
+async def get_dataset_info(dataset_path: str) -> dict[str, Any]:
     """Get information about a specific dataset."""
     try:
         info = data_service.get_dataset_info(dataset_path)
@@ -109,10 +111,10 @@ async def get_dataset_info(dataset_path: str) -> Dict[str, Any]:
 @router.get("/datasets/{dataset_path:path}/query")
 async def query_dataset(
     dataset_path: str,
-    query: Optional[str] = Query(None, description="Pandas query string"),
-    columns: Optional[str] = Query(None, description="Comma-separated column names"),
+    query: str | None = Query(None, description="Pandas query string"),
+    columns: str | None = Query(None, description="Comma-separated column names"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum rows to return"),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Query a dataset with optional filtering."""
     try:
         column_list = columns.split(",") if columns else None
@@ -140,7 +142,7 @@ async def get_visualization_data(
     y_column: str = Query(..., description="Column for Y-axis"),
     chart_type: str = Query("bar", description="Chart type: bar, line, pie, scatter"),
     limit: int = Query(20, ge=1, le=100, description="Maximum data points"),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get data formatted for visualization."""
     try:
         viz_data = data_service.get_visualization_data(

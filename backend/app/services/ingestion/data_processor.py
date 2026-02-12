@@ -3,7 +3,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import text
@@ -13,9 +13,6 @@ from app.config import config
 from app.db.models import (
     CATEGORY_MODELS,
     DataTableRegistry,
-    EmploymentDatasetMetadata,
-    HoursWorkedDatasetMetadata,
-    IncomeDatasetMetadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,13 +28,12 @@ class DataProcessor:
         "income": "income_dataset",
     }
 
-    def __init__(self, datasets_path: Optional[str] = None):
+    def __init__(self, datasets_path: str | None = None):
         self.datasets_path = Path(
-            datasets_path
-            or config.yaml_config.get("data", {}).get("datasets_path", "../dataset")
+            datasets_path or config.yaml_config.get("data", {}).get("datasets_path", "../dataset")
         )
 
-    async def process_all_datasets(self, session: AsyncSession) -> Dict[str, int]:
+    async def process_all_datasets(self, session: AsyncSession) -> dict[str, int]:
         """Process all dataset files organized by category folders.
 
         Returns:
@@ -57,7 +53,11 @@ class DataProcessor:
                 continue
 
             # Find all CSV/Excel files in this folder
-            data_files = list(folder_path.glob("*.csv")) + list(folder_path.glob("*.xlsx")) + list(folder_path.glob("*.xls"))
+            data_files = (
+                list(folder_path.glob("*.csv"))
+                + list(folder_path.glob("*.xlsx"))
+                + list(folder_path.glob("*.xls"))
+            )
 
             logger.info(f"Processing {len(data_files)} files in category '{category}'")
 
@@ -77,7 +77,7 @@ class DataProcessor:
 
     async def _process_single_file(
         self, session: AsyncSession, file_path: Path, category: str
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Process a single dataset file.
 
         Args:
@@ -103,6 +103,7 @@ class DataProcessor:
 
         # Generate embedding for RAG retrieval
         from app.services.llm_service import get_embedding_service
+
         embedding_service = get_embedding_service()
         embedding_vector = await embedding_service.embed_query(summary_text)
 
@@ -130,12 +131,14 @@ class DataProcessor:
         # Generate tsv (full-text search vector) using PostgreSQL's to_tsvector
         metadata_table = f"{category}_dataset_metadata"
         await session.execute(
-            text(f"""
+            text(
+                f"""
                 UPDATE {metadata_table}
                 SET tsv = to_tsvector('english', summary_text)
                 WHERE id = :metadata_id
-            """),
-            {"metadata_id": metadata.id}
+            """
+            ),
+            {"metadata_id": metadata.id},
         )
         await session.flush()  # Get the ID
 
@@ -168,15 +171,14 @@ class DataProcessor:
         """Standardize column names and clean data."""
         # Standardize column names: lowercase, replace spaces with underscores
         df.columns = [
-            re.sub(r'\s+', '_', col.strip().lower()).replace('-', '_')
-            for col in df.columns
+            re.sub(r"\s+", "_", col.strip().lower()).replace("-", "_") for col in df.columns
         ]
 
         # Replace common null-like values
         null_values = ["n.a.", "na", "n/a", "-", ".."]
         for col in df.columns:
             if df[col].dtype == object:
-                df[col] = df[col].replace({v: None for v in null_values})
+                df[col] = df[col].replace(dict.fromkeys(null_values))
                 # Try to coerce to numeric
                 try:
                     numeric = pd.to_numeric(df[col], errors="coerce")
@@ -188,7 +190,7 @@ class DataProcessor:
 
         return df
 
-    def _detect_schema(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _detect_schema(self, df: pd.DataFrame) -> dict[str, Any]:
         """Detect schema information for SQL generation.
 
         Classifies columns as:
@@ -227,8 +229,8 @@ class DataProcessor:
                 min_val = vals.min()
                 max_val = vals.max()
                 schema["year_range"] = {
-                    "min": int(min_val.item() if hasattr(min_val, 'item') else min_val),
-                    "max": int(max_val.item() if hasattr(max_val, 'item') else max_val),
+                    "min": int(min_val.item() if hasattr(min_val, "item") else min_val),
+                    "max": int(max_val.item() if hasattr(max_val, "item") else max_val),
                 }
                 schema["primary_dimensions"].append(year_col)
 
@@ -239,18 +241,17 @@ class DataProcessor:
             sample_values = df[col].dropna().unique()[:5].tolist()
 
             # Convert numpy types to Python native types
-            sample_values = [
-                val.item() if hasattr(val, 'item') else val
-                for val in sample_values
-            ]
+            sample_values = [val.item() if hasattr(val, "item") else val for val in sample_values]
 
             # Add to columns list
-            schema["columns"].append({
-                "name": col,
-                "dtype": col_dtype,
-                "nullable": nullable,
-                "sample_values": sample_values,
-            })
+            schema["columns"].append(
+                {
+                    "name": col,
+                    "dtype": col_dtype,
+                    "nullable": nullable,
+                    "sample_values": sample_values,
+                }
+            )
 
             # Classify column type
             if col == year_col:
@@ -263,7 +264,7 @@ class DataProcessor:
                     schema["primary_dimensions"].append(col)
                     # Get unique values and convert numpy types to Python native types
                     unique_vals = [
-                        val.item() if hasattr(val, 'item') else val
+                        val.item() if hasattr(val, "item") else val
                         for val in df[col].dropna().unique().tolist()
                     ]
                     # Sort values, handling mixed types by converting to strings
@@ -273,11 +274,13 @@ class DataProcessor:
                         # Mixed types (e.g., int and str) - sort as strings
                         unique_vals = sorted(unique_vals, key=str)
 
-                    schema["categorical_columns"].append({
-                        "column": col,
-                        "cardinality": nunique,
-                        "values": unique_vals[:50],  # Limit to 50 values
-                    })
+                    schema["categorical_columns"].append(
+                        {
+                            "column": col,
+                            "cardinality": nunique,
+                            "values": unique_vals[:50],  # Limit to 50 values
+                        }
+                    )
 
             elif df[col].dtype in ("int64", "float64"):
                 # Numeric column (measure)
@@ -305,8 +308,8 @@ class DataProcessor:
         import hashlib
 
         # Sanitize file stem
-        sanitized = re.sub(r'[^a-z0-9_]', '_', file_stem.lower())
-        sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+        sanitized = re.sub(r"[^a-z0-9_]", "_", file_stem.lower())
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
 
         # Combine with category
         table_name = f"{category}_{sanitized}"
@@ -321,7 +324,7 @@ class DataProcessor:
         return table_name
 
     def _generate_summary_text(
-        self, df: pd.DataFrame, file_path: Path, schema_info: Dict[str, Any]
+        self, df: pd.DataFrame, file_path: Path, schema_info: dict[str, Any]
     ) -> str:
         """Generate a natural-language summary for the dataset."""
         name = file_path.stem.replace("_", " ")
@@ -357,7 +360,7 @@ class DataProcessor:
         self,
         df: pd.DataFrame,
         table_name: str,
-        schema_info: Dict[str, Any],
+        schema_info: dict[str, Any],
         session: AsyncSession,
     ) -> None:
         """Create a data table with proper SQL types and indexes.
@@ -374,7 +377,7 @@ class DataProcessor:
 
         for col_info in schema_info["columns"]:
             orig_col = col_info["name"]
-            safe_col = re.sub(r'[^a-z0-9_]', '_', orig_col.lower()).strip('_')[:63]
+            safe_col = re.sub(r"[^a-z0-9_]", "_", orig_col.lower()).strip("_")[:63]
             if not safe_col:
                 safe_col = "col"
 
@@ -411,7 +414,9 @@ class DataProcessor:
 
                 try:
                     await session.execute(
-                        text(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ("{safe_col}")')
+                        text(
+                            f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ("{safe_col}")'
+                        )
                     )
                 except Exception as e:
                     logger.warning(f"Failed to create index {index_name}: {e}")
@@ -444,7 +449,7 @@ class DataProcessor:
                         params[f"col{i}"] = None
                     else:
                         # Extract Python value from numpy types
-                        py_val = val.item() if hasattr(val, 'item') else val
+                        py_val = val.item() if hasattr(val, "item") else val
 
                         # Convert to string if column type is TEXT to avoid type mismatch
                         if col_types.get(orig_col) == "text" and py_val is not None:
@@ -456,7 +461,7 @@ class DataProcessor:
             # Insert in batches of 500
             batch_size = 500
             for i in range(0, len(rows), batch_size):
-                batch = rows[i:i + batch_size]
+                batch = rows[i : i + batch_size]
                 await session.execute(text(insert_sql), batch)
 
         logger.info(f"Created table '{table_name}' with {len(df)} rows")

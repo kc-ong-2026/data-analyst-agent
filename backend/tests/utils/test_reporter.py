@@ -11,10 +11,9 @@ This module generates markdown reports summarizing:
 
 import json
 import logging
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, asdict
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TestSummary:
     """Summary of test execution."""
+
     total_tests: int
     passed: int
     failed: int
@@ -33,6 +33,7 @@ class TestSummary:
 @dataclass
 class RetrievalMetrics:
     """Retrieval evaluation metrics."""
+
     context_precision_at_1: float
     context_precision_at_3: float
     context_precision_at_5: float
@@ -44,6 +45,7 @@ class RetrievalMetrics:
 @dataclass
 class GenerationMetrics:
     """Generation evaluation metrics."""
+
     bertscore_precision: float
     bertscore_recall: float
     bertscore_f1: float
@@ -55,6 +57,7 @@ class GenerationMetrics:
 @dataclass
 class LLMJudgeMetrics:
     """LLM as judge evaluation metrics."""
+
     overall_score: float
     accuracy_score: float
     completeness_score: float
@@ -65,6 +68,7 @@ class LLMJudgeMetrics:
 @dataclass
 class PerformanceMetrics:
     """Performance and latency metrics."""
+
     rag_retrieval_p50_ms: float
     rag_retrieval_p90_ms: float
     code_generation_p50_ms: float
@@ -96,11 +100,11 @@ class TestReporter:
     def generate_report(
         self,
         test_summary: TestSummary,
-        retrieval_metrics: Optional[RetrievalMetrics] = None,
-        generation_metrics: Optional[GenerationMetrics] = None,
-        llm_judge_metrics: Optional[LLMJudgeMetrics] = None,
-        performance_metrics: Optional[PerformanceMetrics] = None,
-        additional_notes: Optional[str] = None,
+        retrieval_metrics: RetrievalMetrics | None = None,
+        generation_metrics: GenerationMetrics | None = None,
+        llm_judge_metrics: LLMJudgeMetrics | None = None,
+        performance_metrics: PerformanceMetrics | None = None,
+        additional_notes: str | None = None,
     ) -> Path:
         """
         Generate comprehensive test report.
@@ -155,8 +159,14 @@ class TestReporter:
         logger.info(f"Report generated successfully: {report_path}")
 
         # Also save JSON version
-        self._save_json_report(report_path, test_summary, retrieval_metrics,
-                              generation_metrics, llm_judge_metrics, performance_metrics)
+        self._save_json_report(
+            report_path,
+            test_summary,
+            retrieval_metrics,
+            generation_metrics,
+            llm_judge_metrics,
+            performance_metrics,
+        )
 
         return report_path
 
@@ -318,10 +328,10 @@ class TestReporter:
         self,
         markdown_path: Path,
         test_summary: TestSummary,
-        retrieval_metrics: Optional[RetrievalMetrics],
-        generation_metrics: Optional[GenerationMetrics],
-        llm_judge_metrics: Optional[LLMJudgeMetrics],
-        performance_metrics: Optional[PerformanceMetrics],
+        retrieval_metrics: RetrievalMetrics | None,
+        generation_metrics: GenerationMetrics | None,
+        llm_judge_metrics: LLMJudgeMetrics | None,
+        performance_metrics: PerformanceMetrics | None,
     ) -> None:
         """Save JSON version of report for programmatic access."""
         json_path = markdown_path.with_suffix(".json")
@@ -346,9 +356,7 @@ class TestReporter:
         logger.info(f"JSON report saved: {json_path}")
 
     def generate_comparison_report(
-        self,
-        reports: List[Path],
-        output_name: str = "comparison_report.md"
+        self, reports: list[Path], output_name: str = "comparison_report.md"
     ) -> Path:
         """
         Generate comparison report from multiple test reports.

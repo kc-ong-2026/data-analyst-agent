@@ -5,9 +5,9 @@ Tests the complete query → response flow through all agents using mocked LLM r
 No real LLM API calls - fast and deterministic.
 """
 
-import pytest
 import time
-from unittest.mock import patch, AsyncMock
+
+import pytest
 
 
 @pytest.mark.integration

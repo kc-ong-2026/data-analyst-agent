@@ -3,23 +3,23 @@
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import pandas as pd
 import numpy as np
-
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import StateGraph, END
+import pandas as pd
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import END, StateGraph
 
 from app.models import AnalysisResult, VisualizationData
+
 from ..base_agent import (
-    AgentRole,
     AgentResponse,
+    AgentRole,
     AgentState,
     BaseAgent,
     GraphState,
 )
-from .prompts import SYSTEM_PROMPT, COLUMN_VALIDATION_PROMPT
+from .prompts import COLUMN_VALIDATION_PROMPT, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,9 @@ class AnalyticsAgent(BaseAgent):
         is_server_error = any(pattern in error_msg for pattern in server_error_patterns)
 
         # If this is a clear server-side error, return generic message
-        if is_server_error or (error_type == "AttributeError" and ("object has no attribute" in error_msg)):
+        if is_server_error or (
+            error_type == "AttributeError" and ("object has no attribute" in error_msg)
+        ):
             base_msg = "An internal server error occurred. Our team has been notified and will fix this issue."
             logger.critical(f"[SERVER ERROR] {error_type}: {error_msg}", exc_info=True)
             return f"{base_msg}\n\nError ID: {error_type}\nPlease contact support if this persists."
@@ -120,7 +122,9 @@ class AnalyticsAgent(BaseAgent):
         elif "syntax" in error_msg.lower() and "code" in context.lower():
             base_msg = "There was an error in the generated analysis code. We'll try to fix this automatically."
         else:
-            base_msg = error_mappings.get(error_type, "We encountered an unexpected error while processing your request.")
+            base_msg = error_mappings.get(
+                error_type, "We encountered an unexpected error while processing your request."
+            )
 
         # Add context if provided
         if context:
@@ -130,7 +134,7 @@ class AnalyticsAgent(BaseAgent):
         return f"{base_msg}\n\nTechnical details: {error_type}: {error_msg[:200]}"
 
     @staticmethod
-    def _reconstruct_dataframe(serialized: Dict[str, Any]) -> pd.DataFrame:
+    def _reconstruct_dataframe(serialized: dict[str, Any]) -> pd.DataFrame:
         """Reconstruct a single DataFrame from serialized data.
 
         Args:
@@ -148,9 +152,9 @@ class AnalyticsAgent(BaseAgent):
 
         # COMPREHENSIVE DATA CLEANING: Clean ALL string columns
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == "object":
                 # Clean trailing letters from numeric-like strings
-                df[col] = df[col].astype(str).str.replace(r'^(\d+)[a-zA-Z]+$', r'\1', regex=True)
+                df[col] = df[col].astype(str).str.replace(r"^(\d+)[a-zA-Z]+$", r"\1", regex=True)
                 # Clean leading/trailing whitespace
                 df[col] = df[col].str.strip()
 
@@ -161,34 +165,34 @@ class AnalyticsAgent(BaseAgent):
                 try:
                     # Use exact dtype string if possible, otherwise infer
                     if dtype_str.lower() == "int64":
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.int64)
+                        df[col] = pd.to_numeric(df[col], errors="coerce").astype(np.int64)
                     elif dtype_str.lower() == "int32":
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.int32)
+                        df[col] = pd.to_numeric(df[col], errors="coerce").astype(np.int32)
                     elif "int" in dtype_str.lower():
                         # Use nullable Int64 for other integer types
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+                        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
                     elif dtype_str.lower() == "float64":
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.float64)
+                        df[col] = pd.to_numeric(df[col], errors="coerce").astype(np.float64)
                     elif dtype_str.lower() == "float32":
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype(np.float32)
+                        df[col] = pd.to_numeric(df[col], errors="coerce").astype(np.float32)
                     elif "float" in dtype_str.lower():
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
                     elif "datetime" in dtype_str.lower():
-                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                        df[col] = pd.to_datetime(df[col], errors="coerce")
                 except Exception as e:
                     logger.warning(f"Could not convert column {col} to {dtype_str}: {e}")
 
         # AUTO-DETECT and clean year columns (only if not already converted above)
-        year_cols = [c for c in df.columns if 'year' in c.lower()]
+        year_cols = [c for c in df.columns if "year" in c.lower()]
         for col in year_cols:
             # Skip if dtype was already set from dtypes dict
-            if col not in dtypes and df[col].dtype == 'object':
-                df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+            if col not in dtypes and df[col].dtype == "object":
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
 
         return df
 
     @staticmethod
-    def _reconstruct_dataframes(serialized_list: List[Dict[str, Any]]) -> Dict[str, pd.DataFrame]:
+    def _reconstruct_dataframes(serialized_list: list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
         """Reconstruct multiple DataFrames from a list of serialized data.
 
         Args:
@@ -206,7 +210,7 @@ class AnalyticsAgent(BaseAgent):
         return dataframes
 
     @staticmethod
-    def _extract_visualization_data(fig) -> Optional[Dict[str, Any]]:
+    def _extract_visualization_data(fig) -> dict[str, Any] | None:
         """Extract data from matplotlib Figure for testing.
 
         Args:
@@ -215,7 +219,6 @@ class AnalyticsAgent(BaseAgent):
         Returns:
             Dict with 'type' and 'data' keys
         """
-        import matplotlib.pyplot as plt
         from matplotlib.figure import Figure
 
         if not isinstance(fig, Figure):
@@ -234,18 +237,12 @@ class AnalyticsAgent(BaseAgent):
                 line = lines[0]
                 x_data = line.get_xdata().tolist()
                 y_data = line.get_ydata().tolist()
-                return {
-                    "type": "line",
-                    "data": {"x": x_data, "y": y_data}
-                }
+                return {"type": "line", "data": {"x": x_data, "y": y_data}}
 
             # Check for bar charts
             patches = ax.patches
             if patches:
-                return {
-                    "type": "bar",
-                    "data": {"count": len(patches)}
-                }
+                return {"type": "bar", "data": {"count": len(patches)}}
 
             return None
         except Exception as e:
@@ -253,7 +250,7 @@ class AnalyticsAgent(BaseAgent):
             return None
 
     @staticmethod
-    def _auto_generate_visualization(df: pd.DataFrame, query: str) -> Optional[Dict[str, Any]]:
+    def _auto_generate_visualization(df: pd.DataFrame, query: str) -> dict[str, Any] | None:
         """Auto-generate visualization spec from DataFrame (testing method).
 
         Args:
@@ -272,12 +269,7 @@ class AnalyticsAgent(BaseAgent):
         if len(columns) < 2:
             return None
 
-        return {
-            "type": viz_type,
-            "x": columns[0],
-            "y": columns[1],
-            "title": "Auto-generated Chart"
-        }
+        return {"type": viz_type, "x": columns[0], "y": columns[1], "title": "Auto-generated Chart"}
 
     @staticmethod
     def _detect_visualization_type(query: str) -> str:
@@ -304,7 +296,7 @@ class AnalyticsAgent(BaseAgent):
         return "bar"
 
     @staticmethod
-    def _create_plotly_chart(df: pd.DataFrame, viz_spec: Dict[str, Any]) -> Optional[str]:
+    def _create_plotly_chart(df: pd.DataFrame, viz_spec: dict[str, Any]) -> str | None:
         """Create Plotly HTML chart from DataFrame and spec (testing method).
 
         Args:
@@ -330,9 +322,9 @@ class AnalyticsAgent(BaseAgent):
             if chart_type == "bar":
                 fig = go.Figure(data=go.Bar(x=x_data, y=y_data))
             elif chart_type == "line":
-                fig = go.Figure(data=go.Scatter(x=x_data, y=y_data, mode='lines+markers'))
+                fig = go.Figure(data=go.Scatter(x=x_data, y=y_data, mode="lines+markers"))
             elif chart_type == "scatter":
-                fig = go.Figure(data=go.Scatter(x=x_data, y=y_data, mode='markers'))
+                fig = go.Figure(data=go.Scatter(x=x_data, y=y_data, mode="markers"))
             else:
                 fig = go.Figure(data=go.Bar(x=x_data, y=y_data))
 
@@ -385,7 +377,9 @@ class AnalyticsAgent(BaseAgent):
                 state.add_error(user_message)
                 error_state = state
             else:
-                error_state = AgentState.from_graph_state(state) if isinstance(state, dict) else AgentState()
+                error_state = (
+                    AgentState.from_graph_state(state) if isinstance(state, dict) else AgentState()
+                )
                 error_state.add_error(user_message)
 
             return AgentResponse(
@@ -432,7 +426,7 @@ class AnalyticsAgent(BaseAgent):
             {
                 "generate": "generate_code",
                 "fallback": "compose_fallback_response",
-            }
+            },
         )
 
         # ReAct Loop (max 3 iterations)
@@ -445,7 +439,7 @@ class AnalyticsAgent(BaseAgent):
             {
                 "retry": "generate_code",  # Loop back to generate_code with feedback
                 "continue": "explain_results",  # Exit loop, proceed to explanation
-            }
+            },
         )
 
         # Rest of workflow
@@ -455,7 +449,7 @@ class AnalyticsAgent(BaseAgent):
             {
                 "visualize": "generate_visualization",
                 "skip": "compose_response",
-            }
+            },
         )
         workflow.add_edge("generate_visualization", "compose_response")
         workflow.add_edge("compose_response", END)
@@ -492,13 +486,15 @@ class AnalyticsAgent(BaseAgent):
             return "retry"
         return "continue"
 
-    async def _prepare_data_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _prepare_data_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Prepare extracted data for analysis by reconstructing DataFrames."""
         try:
             extracted_data = state.get("extracted_data", {})
             current_task = state.get("current_task", "")
 
-            logger.info(f"[PREPARE DATA] Starting data preparation for {len(extracted_data)} datasets")
+            logger.info(
+                f"[PREPARE DATA] Starting data preparation for {len(extracted_data)} datasets"
+            )
 
             # Rebuild DataFrames from extracted data
             dataframes = {}
@@ -514,7 +510,10 @@ class AnalyticsAgent(BaseAgent):
                 try:
                     # Check if this is serialized DataFrame data
                     source = data_dict.get("source")
-                    if source in ["rag_metadata", "file_metadata", "dataframe"] and data_dict.get("data") is not None:
+                    if (
+                        source in ["rag_metadata", "file_metadata", "dataframe"]
+                        and data_dict.get("data") is not None
+                    ):
                         # Use static method to reconstruct DataFrame
                         df = self._reconstruct_dataframe(data_dict)
 
@@ -524,22 +523,30 @@ class AnalyticsAgent(BaseAgent):
                         data_summary[name] = {
                             "row_count": len(df),
                             "columns": df.columns.tolist(),
-                            "numeric_columns": df.select_dtypes(include=[np.number]).columns.tolist(),
+                            "numeric_columns": df.select_dtypes(
+                                include=[np.number]
+                            ).columns.tolist(),
                             "shape": df.shape,
                             "metadata": data_dict.get("metadata", {}),
                         }
                         total_rows += len(df)
 
-                        logger.info(f"[PREPARE DATA] ✓ Reconstructed {name}: {df.shape}, {len(df)} rows")
+                        logger.info(
+                            f"[PREPARE DATA] ✓ Reconstructed {name}: {df.shape}, {len(df)} rows"
+                        )
                 except Exception as e:
                     error_msg = f"Failed to reconstruct {name}: {str(e)}"
                     logger.error(f"[PREPARE DATA] ✗ {error_msg}", exc_info=True)
                     errors.append(error_msg)
 
             if not dataframes and errors:
-                logger.error(f"[PREPARE DATA] No DataFrames reconstructed, {len(errors)} errors occurred")
+                logger.error(
+                    f"[PREPARE DATA] No DataFrames reconstructed, {len(errors)} errors occurred"
+                )
 
-            logger.info(f"[PREPARE DATA] Successfully prepared {len(dataframes)} DataFrames, total {total_rows} rows")
+            logger.info(
+                f"[PREPARE DATA] Successfully prepared {len(dataframes)} DataFrames, total {total_rows} rows"
+            )
 
             return {
                 "intermediate_results": {
@@ -569,7 +576,7 @@ class AnalyticsAgent(BaseAgent):
                 "errors": state.get("errors", []) + [user_msg],
             }
 
-    async def _validate_columns_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _validate_columns_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Validate that DataFrame columns can answer user's query.
 
         Returns:
@@ -596,8 +603,8 @@ class AnalyticsAgent(BaseAgent):
                             "reasoning": "No DataFrames available for validation",
                             "missing_concepts": ["all data"],
                             "available_alternatives": [],
-                            "recommendation": "Inform user no data is available"
-                        }
+                            "recommendation": "Inform user no data is available",
+                        },
                     },
                 }
 
@@ -606,7 +613,9 @@ class AnalyticsAgent(BaseAgent):
             summary = data_summary.get(df_name, {})
             metadata = summary.get("metadata", {})
 
-            logger.info(f"[COLUMN VALIDATION] Validating against DataFrame: {df_name}, shape: {df.shape}")
+            logger.info(
+                f"[COLUMN VALIDATION] Validating against DataFrame: {df_name}, shape: {df.shape}"
+            )
 
             # Build validation prompt
             try:
@@ -624,10 +633,12 @@ class AnalyticsAgent(BaseAgent):
                     summary_text=summary_text,
                     primary_dimensions=primary_dimensions,
                     categorical_columns=categorical_columns,
-                    numeric_columns=numeric_columns
+                    numeric_columns=numeric_columns,
                 )
             except Exception as e:
-                logger.error(f"[COLUMN VALIDATION] Error building validation prompt: {e}", exc_info=True)
+                logger.error(
+                    f"[COLUMN VALIDATION] Error building validation prompt: {e}", exc_info=True
+                )
                 raise ValueError(f"Failed to build validation prompt: {str(e)}")
 
             try:
@@ -636,10 +647,12 @@ class AnalyticsAgent(BaseAgent):
                 json_str = self._extract_json_from_response(response)
 
                 # Check if response is actually JSON
-                if json_str and (json_str.startswith('{') or json_str.startswith('[')):
+                if json_str and (json_str.startswith("{") or json_str.startswith("[")):
                     validation_result = json.loads(json_str)
-                    logger.info(f"[COLUMN VALIDATION] Status: {validation_result.get('status')}, "
-                               f"Missing: {validation_result.get('missing_concepts', [])}")
+                    logger.info(
+                        f"[COLUMN VALIDATION] Status: {validation_result.get('status')}, "
+                        f"Missing: {validation_result.get('missing_concepts', [])}"
+                    )
                 else:
                     # Response is not JSON (likely code or explanation from test mocks)
                     # Default to exact_match and proceed
@@ -649,16 +662,18 @@ class AnalyticsAgent(BaseAgent):
                         "reasoning": "Non-JSON validation response, proceeding with code generation",
                         "missing_concepts": [],
                         "available_alternatives": [],
-                        "recommendation": "Generate code with available columns"
+                        "recommendation": "Generate code with available columns",
                     }
             except Exception as e:
-                logger.warning(f"[COLUMN VALIDATION] LLM validation failed, defaulting to exact_match: {e}")
+                logger.warning(
+                    f"[COLUMN VALIDATION] LLM validation failed, defaulting to exact_match: {e}"
+                )
                 validation_result = {
                     "status": "exact_match",
                     "reasoning": "Validation error, proceeding with code generation",
                     "missing_concepts": [],
                     "available_alternatives": [],
-                    "recommendation": "Generate code with available columns"
+                    "recommendation": "Generate code with available columns",
                 }
 
             return {
@@ -669,7 +684,9 @@ class AnalyticsAgent(BaseAgent):
             }
 
         except Exception as e:
-            logger.error(f"[COLUMN VALIDATION] Critical error in validation node: {e}", exc_info=True)
+            logger.error(
+                f"[COLUMN VALIDATION] Critical error in validation node: {e}", exc_info=True
+            )
             # Return a safe default that allows workflow to continue
             return {
                 "intermediate_results": {
@@ -679,13 +696,13 @@ class AnalyticsAgent(BaseAgent):
                         "reasoning": f"Validation error: {str(e)}",
                         "missing_concepts": [],
                         "available_alternatives": [],
-                        "recommendation": "Generate code with available columns"
-                    }
+                        "recommendation": "Generate code with available columns",
+                    },
                 },
-                "errors": state.get("errors", []) + [f"Column validation error: {str(e)}"]
+                "errors": state.get("errors", []) + [f"Column validation error: {str(e)}"],
             }
 
-    async def _generate_code_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _generate_code_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Generate code using ReAct pattern (Reasoning + Action).
 
         ReAct Cycle:
@@ -705,7 +722,9 @@ class AnalyticsAgent(BaseAgent):
             react_history = state.get("intermediate_results", {}).get("react_history", [])
             react_feedback = state.get("intermediate_results", {}).get("react_feedback")
 
-            logger.info(f"[REACT ITERATION {iteration + 1}/3] Starting code generation for: {current_task[:100]}")
+            logger.info(
+                f"[REACT ITERATION {iteration + 1}/3] Starting code generation for: {current_task[:100]}"
+            )
 
             if not dataframes:
                 logger.error("[REACT] No DataFrames available for code generation")
@@ -723,7 +742,9 @@ class AnalyticsAgent(BaseAgent):
             metadata = data_summary.get(df_name, {}).get("metadata", {})
             should_plot = self._query_needs_visualization(current_task)
 
-            logger.info(f"[REACT] Using DataFrame: {df_name}, shape: {df.shape}, plotting: {should_plot}")
+            logger.info(
+                f"[REACT] Using DataFrame: {df_name}, shape: {df.shape}, plotting: {should_plot}"
+            )
 
             # Build ReAct prompt context
             react_prompt_context = {
@@ -742,7 +763,7 @@ class AnalyticsAgent(BaseAgent):
                     should_plot=should_plot,
                     metadata=metadata,
                     validation_context=validation_context,
-                    react_context=react_prompt_context
+                    react_context=react_prompt_context,
                 )
 
                 reasoning = result.get("reasoning", "")
@@ -760,12 +781,14 @@ class AnalyticsAgent(BaseAgent):
                 code = ""
 
             # Store in history
-            react_history.append({
-                "iteration": iteration,
-                "reasoning": reasoning,
-                "action": code,
-                "observation": None,  # Filled in by evaluate node
-            })
+            react_history.append(
+                {
+                    "iteration": iteration,
+                    "reasoning": reasoning,
+                    "action": code,
+                    "observation": None,  # Filled in by evaluate node
+                }
+            )
 
             return {
                 "intermediate_results": {
@@ -791,7 +814,7 @@ class AnalyticsAgent(BaseAgent):
                 "errors": state.get("errors", []) + [user_msg],
             }
 
-    async def _validate_code_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _validate_code_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Validate generated code for syntax and logical errors.
 
         Checks:
@@ -807,9 +830,7 @@ class AnalyticsAgent(BaseAgent):
         should_plot = state.get("intermediate_results", {}).get("should_plot", False)
 
         validation_result = self._validate_generated_code(
-            code=code,
-            dataframes=dataframes,
-            should_plot=should_plot
+            code=code, dataframes=dataframes, should_plot=should_plot
         )
 
         if not validation_result.get("valid", True):
@@ -824,7 +845,7 @@ class AnalyticsAgent(BaseAgent):
             },
         }
 
-    async def _execute_code_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _execute_code_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Execute generated code in controlled environment."""
         try:
             code = state.get("intermediate_results", {}).get("generated_code")
@@ -865,9 +886,7 @@ class AnalyticsAgent(BaseAgent):
 
             # Execute in safe environment
             result, error = await self._execute_safe(
-                code=code,
-                df=dataframes[df_name],
-                should_plot=should_plot
+                code=code, df=dataframes[df_name], should_plot=should_plot
             )
 
             result_type = type(result).__name__ if result is not None else "None"
@@ -900,11 +919,8 @@ class AnalyticsAgent(BaseAgent):
             }
 
     def _validate_visualization_semantics(
-        self,
-        fig,
-        dataframes: Dict[str, pd.DataFrame],
-        data_summary: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, fig, dataframes: dict[str, pd.DataFrame], data_summary: dict[str, Any]
+    ) -> dict[str, Any]:
         """Validate that the visualization makes semantic sense.
 
         Checks:
@@ -962,24 +978,33 @@ class AnalyticsAgent(BaseAgent):
             y_values = [v for v in y_values if not (pd.isna(v) or np.isinf(v))]
 
             if not y_values:
-                return {"valid": True, "feedback": None, "warnings": ["No data points found in chart"]}
+                return {
+                    "valid": True,
+                    "feedback": None,
+                    "warnings": ["No data points found in chart"],
+                }
 
             actual_min = min(y_values)
             actual_max = max(y_values)
 
             # Log for debugging
-            logger.info(f"[VIZ VALIDATION] Y-axis: '{y_label}', Limits: {y_axis_min:.1f} to {y_axis_max:.1f}, Data: {actual_min:.1f} to {actual_max:.1f}, Count: {len(y_values)}")
+            logger.info(
+                f"[VIZ VALIDATION] Y-axis: '{y_label}', Limits: {y_axis_min:.1f} to {y_axis_max:.1f}, Data: {actual_min:.1f} to {actual_max:.1f}, Count: {len(y_values)}"
+            )
 
             # Check 1: Percentage/Rate validation
-            is_percentage = any(indicator in y_label_lower for indicator in [
-                'percentage', 'percent', '%', 'rate', 'pct', 'ratio', 'share'
-            ])
+            is_percentage = any(
+                indicator in y_label_lower
+                for indicator in ["percentage", "percent", "%", "rate", "pct", "ratio", "share"]
+            )
 
             if is_percentage:
                 # Check BOTH data values AND axis limits (axis limits are a strong signal)
                 max_value_to_check = max(actual_max, y_axis_max)
 
-                logger.info(f"[VIZ VALIDATION] Detected percentage/rate axis. Checking max value: {max_value_to_check:.1f}")
+                logger.info(
+                    f"[VIZ VALIDATION] Detected percentage/rate axis. Checking max value: {max_value_to_check:.1f}"
+                )
 
                 # Check for outlier values (one bar much higher than others - data cleaning issue)
                 if len(y_values) > 2:
@@ -994,7 +1019,9 @@ class AnalyticsAgent(BaseAgent):
                             f"This suggests a data cleaning issue (e.g., '63.7%' became '637'). "
                             "Check DataFrame cleaning: use pd.to_numeric() with errors='coerce' and strip trailing characters."
                         )
-                        logger.warning(f"[VIZ VALIDATION] Detected outlier: max={actual_max:.1f}, median={median_value:.1f}")
+                        logger.warning(
+                            f"[VIZ VALIDATION] Detected outlier: max={actual_max:.1f}, median={median_value:.1f}"
+                        )
 
                 # Percentages should be 0-100 (or 0-1 for ratios)
                 if max_value_to_check > 100:
@@ -1014,20 +1041,34 @@ class AnalyticsAgent(BaseAgent):
                         )
                 elif actual_max > 1.5:
                     # Values are 0-100 scale, but label might need clarification
-                    if '%' not in y_label:
-                        warnings.append(f"Y-axis shows percentage data (0-100) but label '{y_label}' missing '%' symbol")
+                    if "%" not in y_label:
+                        warnings.append(
+                            f"Y-axis shows percentage data (0-100) but label '{y_label}' missing '%' symbol"
+                        )
                 else:
                     # Values are 0-1 scale (ratio), should use "Rate" not "Percentage"
-                    if 'percentage' in y_label_lower or '%' in y_label:
+                    if "percentage" in y_label_lower or "%" in y_label:
                         warnings.append(
-                            f"Y-axis labeled as percentage but values are 0-1 (ratio scale). "
+                            "Y-axis labeled as percentage but values are 0-1 (ratio scale). "
                             "Consider using 'Rate' or multiply by 100 for percentage."
                         )
 
             # Check 2: Unit labels
-            has_units = any(unit in y_label_lower for unit in [
-                '(%)', '%', 'thousands', 'millions', 'count', 'number', 'rate', '$', 'sgd', 'usd'
-            ])
+            has_units = any(
+                unit in y_label_lower
+                for unit in [
+                    "(%)",
+                    "%",
+                    "thousands",
+                    "millions",
+                    "count",
+                    "number",
+                    "rate",
+                    "$",
+                    "sgd",
+                    "usd",
+                ]
+            )
 
             if not has_units and not is_percentage:
                 # Check if data looks like it needs units
@@ -1038,7 +1079,7 @@ class AnalyticsAgent(BaseAgent):
                     )
 
             # Check 3: Negative values where they shouldn't be
-            if 'rate' in y_label_lower or 'percentage' in y_label_lower or 'count' in y_label_lower:
+            if "rate" in y_label_lower or "percentage" in y_label_lower or "count" in y_label_lower:
                 if actual_min < 0:
                     warnings.append(
                         f"Y-axis shows {y_label} but has negative values ({actual_min:.1f}). "
@@ -1046,7 +1087,11 @@ class AnalyticsAgent(BaseAgent):
                     )
 
             # Check 4: Extremely large ranges that might indicate wrong units
-            if actual_max > 100000 and 'thousand' not in y_label_lower and 'million' not in y_label_lower:
+            if (
+                actual_max > 100000
+                and "thousand" not in y_label_lower
+                and "million" not in y_label_lower
+            ):
                 warnings.append(
                     f"Y-axis has very large values (max: {actual_max:.0f}). "
                     "Consider scaling to 'Thousands' or 'Millions' for readability."
@@ -1064,7 +1109,7 @@ class AnalyticsAgent(BaseAgent):
                 if y_min_check > 1990 and y_max_check < 2100:
                     # This looks like year data on Y-axis
                     x_label_lower = ax.get_xlabel().lower()
-                    if 'year' not in x_label_lower and 'year' not in y_label_lower:
+                    if "year" not in x_label_lower and "year" not in y_label_lower:
                         errors.append(
                             f"Y-axis shows values {y_min_check:.0f}-{y_max_check:.0f} which look like years. "
                             "Years should typically be on the X-axis (horizontal) for time series charts. "
@@ -1088,7 +1133,7 @@ class AnalyticsAgent(BaseAgent):
             logger.warning(f"Failed to validate visualization semantics: {e}", exc_info=True)
             return {"valid": True, "feedback": None, "warnings": [f"Validation error: {str(e)}"]}
 
-    async def _evaluate_results_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _evaluate_results_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Evaluate execution results and decide if refinement is needed.
 
         Observation Phase of ReAct:
@@ -1115,8 +1160,8 @@ class AnalyticsAgent(BaseAgent):
 
         # Case 1: Code validation failed
         if not code_validation.get("valid", True):
-            validation_errors = code_validation.get('errors', [])
-            suggestions = code_validation.get('suggestions', [])
+            validation_errors = code_validation.get("errors", [])
+            suggestions = code_validation.get("suggestions", [])
             feedback = f"Code validation failed: {', '.join(validation_errors)}. "
             if suggestions:
                 feedback += f"Suggestions: {', '.join(suggestions[:2])}"
@@ -1126,7 +1171,7 @@ class AnalyticsAgent(BaseAgent):
         # Case 2: Execution error
         elif error:
             # Include validation warnings if any
-            validation_warnings = code_validation.get('warnings', [])
+            validation_warnings = code_validation.get("warnings", [])
             feedback = f"Execution error: {error}"
             if validation_warnings:
                 feedback += f" (Warning: {', '.join(validation_warnings[:1])})"
@@ -1145,7 +1190,6 @@ class AnalyticsAgent(BaseAgent):
 
         # Case 5: Visualization requested but not created
         elif should_plot:
-            import matplotlib.pyplot as plt
             from matplotlib.figure import Figure
 
             if not isinstance(result, Figure):
@@ -1154,9 +1198,7 @@ class AnalyticsAgent(BaseAgent):
             else:
                 # NEW: Semantic validation of the visualization
                 viz_validation = self._validate_visualization_semantics(
-                    fig=result,
-                    dataframes=dataframes,
-                    data_summary=data_summary
+                    fig=result, dataframes=dataframes, data_summary=data_summary
                 )
 
                 if not viz_validation.get("valid", True):
@@ -1166,7 +1208,9 @@ class AnalyticsAgent(BaseAgent):
                 else:
                     success = True
                     if viz_validation.get("warnings"):
-                        logger.info(f"[REACT EVALUATE] Visualization warnings: {viz_validation['warnings']}")
+                        logger.info(
+                            f"[REACT EVALUATE] Visualization warnings: {viz_validation['warnings']}"
+                        )
 
         # Case 6: Success
         else:
@@ -1179,7 +1223,11 @@ class AnalyticsAgent(BaseAgent):
                 "result_type": type(result).__name__ if result is not None else "None",
                 "error": error,
                 "feedback": feedback,
-                "validation_errors": code_validation.get('errors', []) if not code_validation.get("valid", True) else []
+                "validation_errors": (
+                    code_validation.get("errors", [])
+                    if not code_validation.get("valid", True)
+                    else []
+                ),
             }
 
         # Prepare for next iteration
@@ -1190,7 +1238,7 @@ class AnalyticsAgent(BaseAgent):
         elif success:
             logger.info(f"[REACT SUCCESS] Completed in {iteration + 1} iteration(s)")
         elif iteration >= max_iterations - 1:
-            logger.warning(f"[REACT MAX ITERATIONS] Failed after 3 attempts")
+            logger.warning("[REACT MAX ITERATIONS] Failed after 3 attempts")
 
         return {
             "intermediate_results": {
@@ -1206,7 +1254,7 @@ class AnalyticsAgent(BaseAgent):
             },
         }
 
-    async def _explain_results_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _explain_results_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Generate natural language explanation of results."""
         current_task = state.get("current_task", "")
         result = state.get("intermediate_results", {}).get("execution_result")
@@ -1220,9 +1268,7 @@ class AnalyticsAgent(BaseAgent):
         else:
             # Use LLM to explain the result, including validation context
             explanation = await self._generate_explanation(
-                query=current_task,
-                result=result,
-                validation_context=validation
+                query=current_task, result=result, validation_context=validation
             )
 
         # Get extracted data keys for data sources
@@ -1239,7 +1285,7 @@ class AnalyticsAgent(BaseAgent):
             },
         }
 
-    async def _analyze_data_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _analyze_data_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Analyze data and generate insights."""
         current_task = state.get("current_task", "")
         extracted_data = state.get("extracted_data", {})
@@ -1253,9 +1299,11 @@ class AnalyticsAgent(BaseAgent):
         total_rows = state.get("intermediate_results", {}).get("total_rows", 0)
 
         # Also check for SQL query results
-        if "query_result" in extracted_data and extracted_data["query_result"].get("data"):
-            has_actual_data = True
-        elif total_rows > 0:
+        if (
+            "query_result" in extracted_data
+            and extracted_data["query_result"].get("data")
+            or total_rows > 0
+        ):
             has_actual_data = True
 
         # Use different prompts based on data availability
@@ -1304,7 +1352,7 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
             },
         }
 
-    async def _generate_visualization_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _generate_visualization_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Generate visualization from code execution results."""
         result = state.get("intermediate_results", {}).get("execution_result")
         current_task = state.get("current_task", "")
@@ -1314,7 +1362,6 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
         viz = None
 
         # Strategy 1: If matplotlib Figure was generated, extract data from it
-        import matplotlib.pyplot as plt
         from matplotlib.figure import Figure
 
         if isinstance(result, Figure):
@@ -1340,7 +1387,7 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
             },
         }
 
-    async def _compose_response_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _compose_response_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Compose final response with analysis and visualization."""
         # FIX: Use "explanation" key (set by explain_results_node), not "analysis"
         explanation = state.get("intermediate_results", {}).get("explanation", "")
@@ -1376,7 +1423,9 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
             if html_chart:
                 # Include both HTML chart AND data array for Recharts fallback
                 visualization["html_chart"] = html_chart
-                logger.info(f"Returning visualization with both HTML chart and {len(visualization.get('data', []))} data points for fallback")
+                logger.info(
+                    f"Returning visualization with both HTML chart and {len(visualization.get('data', []))} data points for fallback"
+                )
 
         return {
             "analysis_results": {
@@ -1393,7 +1442,7 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
             "current_step": state.get("current_step", 0) + 1,
         }
 
-    async def _compose_fallback_response_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _compose_fallback_response_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Compose response when columns don't match query requirements.
 
         Generates helpful message about what data IS available and suggests
@@ -1469,8 +1518,8 @@ Keep the response concise and friendly (3-4 sentences max).
 
     def _format_data_for_analysis(
         self,
-        extracted_data: Dict[str, Any],
-        data_summary: Dict[str, Any],
+        extracted_data: dict[str, Any],
+        data_summary: dict[str, Any],
     ) -> str:
         """Format extracted data for the analysis prompt.
 
@@ -1485,10 +1534,10 @@ Keep the response concise and friendly (3-4 sentences max).
         if "query_result" in extracted_data and extracted_data["query_result"].get("data"):
             query_data = extracted_data["query_result"]
             rows = query_data.get("data", [])
-            part = f"\n### SQL Query Result\n"
+            part = "\n### SQL Query Result\n"
             part += f"Rows: {len(rows)}\n"
             part += f"Columns: {', '.join(query_data.get('columns', [])[:10])}\n"
-            part += f"Data (first 10 rows from SQL query):\n"
+            part += "Data (first 10 rows from SQL query):\n"
             part += json.dumps(rows[:10], indent=2, default=str)
             parts.append(part)
 
@@ -1507,11 +1556,11 @@ Keep the response concise and friendly (3-4 sentences max).
 
             # Priority: rows from SQL results > metadata context
             if rows:
-                part += f"Data (first 10 rows):\n"
+                part += "Data (first 10 rows):\n"
                 part += json.dumps(rows[:10], indent=2, default=str)
             elif metadata:
                 # Use metadata for context when no rows available
-                part += f"\nMetadata Context:\n"
+                part += "\nMetadata Context:\n"
                 if metadata.get("description"):
                     part += f"Description: {metadata['description']}\n"
                 if metadata.get("primary_dimensions"):
@@ -1527,8 +1576,8 @@ Keep the response concise and friendly (3-4 sentences max).
 
     def _auto_generate_visualization(
         self,
-        extracted_data: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        extracted_data: dict[str, Any],
+    ) -> dict[str, Any] | None:
         """Auto-generate visualization from extracted data.
 
         Prioritizes SQL query results over sample rows.
@@ -1561,9 +1610,9 @@ Keep the response concise and friendly (3-4 sentences max).
     def _generate_viz_from_rows(
         self,
         dataset_name: str,
-        rows: List[Dict[str, Any]],
-        columns: List[str],
-    ) -> Optional[Dict[str, Any]]:
+        rows: list[dict[str, Any]],
+        columns: list[str],
+    ) -> dict[str, Any] | None:
         """Generate visualization from rows of data."""
         if len(columns) < 2:
             return None
@@ -1573,14 +1622,23 @@ Keep the response concise and friendly (3-4 sentences max).
         y_col = None
 
         # Priority 1: Look for temporal columns for x-axis
-        temporal_keywords = ['year', 'date', 'month', 'quarter', 'time', 'period']
+        temporal_keywords = ["year", "date", "month", "quarter", "time", "period"]
         for col in columns:
             if any(keyword in col.lower() for keyword in temporal_keywords):
                 x_col = col
                 break
 
         # Priority 2: Find metric column for y-axis (employment metrics, counts, etc.)
-        metric_keywords = ['rate', 'count', 'value', 'change', 'percentage', 'total', 'number', 'amount']
+        metric_keywords = [
+            "rate",
+            "count",
+            "value",
+            "change",
+            "percentage",
+            "total",
+            "number",
+            "amount",
+        ]
         for col in columns:
             if col != x_col:
                 # Check if column is numeric
@@ -1620,10 +1678,12 @@ Keep the response concise and friendly (3-4 sentences max).
         # Each data point must contain both x_col and y_col as keys
         viz_data = []
         for row in rows[:100]:  # Increased limit for better time series visualization
-            viz_data.append({
-                x_col: str(row.get(x_col, ""))[:30],  # Category label (string)
-                y_col: row.get(y_col, 0),  # Numeric value
-            })
+            viz_data.append(
+                {
+                    x_col: str(row.get(x_col, ""))[:30],  # Category label (string)
+                    y_col: row.get(y_col, 0),  # Numeric value
+                }
+            )
 
         if viz_data:
             # Create human-readable labels from column names
@@ -1643,7 +1703,7 @@ Keep the response concise and friendly (3-4 sentences max).
 
         return None
 
-    def _parse_visualization(self, response: str) -> Optional[Dict[str, Any]]:
+    def _parse_visualization(self, response: str) -> dict[str, Any] | None:
         """Parse visualization JSON from LLM response."""
         try:
             # Try to find JSON in response
@@ -1674,7 +1734,7 @@ Keep the response concise and friendly (3-4 sentences max).
 
         return None
 
-    def _validate_visualization(self, viz: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_visualization(self, viz: dict[str, Any]) -> dict[str, Any]:
         """Validate and potentially fix visualization specification."""
         chart_type = viz.get("chart_type", "bar")
         data = viz.get("data", [])
@@ -1734,7 +1794,7 @@ Keep the response concise and friendly (3-4 sentences max).
                 viz["data"] = [
                     {
                         **row,
-                        x_axis: str(row.get(x_axis, ""))[:50]  # Convert to string, limit length
+                        x_axis: str(row.get(x_axis, ""))[:50],  # Convert to string, limit length
                     }
                     for row in data
                 ]
@@ -1750,10 +1810,10 @@ Keep the response concise and friendly (3-4 sentences max).
         import re
 
         # Remove <thinking>...</thinking> blocks (including multiline)
-        text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL | re.IGNORECASE)
 
         # Clean up extra whitespace left behind
-        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple blank lines → double newline
+        text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)  # Multiple blank lines → double newline
 
         return text.strip()
 
@@ -1766,8 +1826,8 @@ Keep the response concise and friendly (3-4 sentences max).
 
         # Pattern to match JSON code blocks (```json...``` or ```...``` with JSON content)
         patterns = [
-            r'```json\s*\{[^`]*\}\s*```',  # Explicit JSON blocks
-            r'```\s*\{[^`]*\}\s*```',       # Generic code blocks with JSON objects
+            r"```json\s*\{[^`]*\}\s*```",  # Explicit JSON blocks
+            r"```\s*\{[^`]*\}\s*```",  # Generic code blocks with JSON objects
         ]
 
         cleaned_text = text
@@ -1775,9 +1835,9 @@ Keep the response concise and friendly (3-4 sentences max).
             # Replace JSON blocks with a placeholder message
             cleaned_text = re.sub(
                 pattern,
-                '[Visualization generated - see visualization panel]',
+                "[Visualization generated - see visualization panel]",
                 cleaned_text,
-                flags=re.DOTALL
+                flags=re.DOTALL,
             )
 
         return cleaned_text.strip()
@@ -1803,8 +1863,8 @@ Keep the response concise and friendly (3-4 sentences max).
         return response
 
     def _validate_generated_code(
-        self, code: str, dataframes: Dict[str, pd.DataFrame], should_plot: bool
-    ) -> Dict[str, Any]:
+        self, code: str, dataframes: dict[str, pd.DataFrame], should_plot: bool
+    ) -> dict[str, Any]:
         """Validate code for syntax and logical errors.
 
         Returns:
@@ -1819,7 +1879,12 @@ Keep the response concise and friendly (3-4 sentences max).
 
         if not code:
             errors.append("No code generated")
-            return {"valid": False, "errors": errors, "warnings": warnings, "suggestions": suggestions}
+            return {
+                "valid": False,
+                "errors": errors,
+                "warnings": warnings,
+                "suggestions": suggestions,
+            }
 
         # Check 1: Syntax validity
         try:
@@ -1827,7 +1892,12 @@ Keep the response concise and friendly (3-4 sentences max).
         except SyntaxError as e:
             errors.append(f"Syntax error: {e}")
             suggestions.append("Fix Python syntax errors")
-            return {"valid": False, "errors": errors, "warnings": warnings, "suggestions": suggestions}
+            return {
+                "valid": False,
+                "errors": errors,
+                "warnings": warnings,
+                "suggestions": suggestions,
+            }
 
         # Check 2: Column references
         df_name = list(dataframes.keys())[0] if dataframes else None
@@ -1859,7 +1929,7 @@ Keep the response concise and friendly (3-4 sentences max).
                 suggestions.append(f"Available columns: {available_cols}")
 
         # Check 3: Import restrictions
-        forbidden_imports = ['os', 'sys', 'subprocess', 'requests', 'urllib', 'socket']
+        forbidden_imports = ["os", "sys", "subprocess", "requests", "urllib", "socket"]
         for module in forbidden_imports:
             if f"import {module}" in code or f"from {module}" in code:
                 errors.append(f"Forbidden import: {module}")
@@ -1867,10 +1937,10 @@ Keep the response concise and friendly (3-4 sentences max).
 
         # Check 4: Forbidden operations
         forbidden_patterns = [
-            (r'\bopen\(', "File I/O operations are not allowed"),
-            (r'\beval\(', "eval() is not allowed"),
-            (r'\bexec\(', "exec() is not allowed"),
-            (r'__import__', "Dynamic imports are not allowed"),
+            (r"\bopen\(", "File I/O operations are not allowed"),
+            (r"\beval\(", "eval() is not allowed"),
+            (r"\bexec\(", "exec() is not allowed"),
+            (r"__import__", "Dynamic imports are not allowed"),
         ]
         for pattern, message in forbidden_patterns:
             if re.search(pattern, code):
@@ -1887,12 +1957,7 @@ Keep the response concise and friendly (3-4 sentences max).
                 suggestions.append("Use matplotlib.pyplot to create charts")
 
         valid = len(errors) == 0
-        return {
-            "valid": valid,
-            "errors": errors,
-            "warnings": warnings,
-            "suggestions": suggestions
-        }
+        return {"valid": valid, "errors": errors, "warnings": warnings, "suggestions": suggestions}
 
     def _query_needs_visualization(self, query: str) -> bool:
         """Determine if query requires visualization."""
@@ -1901,7 +1966,12 @@ Keep the response concise and friendly (3-4 sentences max).
         return any(keyword in query_lower for keyword in viz_keywords)
 
     async def _generate_analysis_code(
-        self, query: str, df: pd.DataFrame, df_name: str, should_plot: bool, metadata: Optional[Dict[str, Any]] = None
+        self,
+        query: str,
+        df: pd.DataFrame,
+        df_name: str,
+        should_plot: bool,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Generate pandas code using LLM."""
         columns_str = ", ".join(df.columns.tolist())
@@ -1910,9 +1980,13 @@ Keep the response concise and friendly (3-4 sentences max).
         summary_text = metadata.get("summary_text", "") if metadata else ""
 
         if should_plot:
-            prompt = self._build_plot_code_prompt(query, columns_str, dtypes_str, sample_rows, summary_text)
+            prompt = self._build_plot_code_prompt(
+                query, columns_str, dtypes_str, sample_rows, summary_text
+            )
         else:
-            prompt = self._build_analysis_code_prompt(query, columns_str, dtypes_str, sample_rows, summary_text)
+            prompt = self._build_analysis_code_prompt(
+                query, columns_str, dtypes_str, sample_rows, summary_text
+            )
 
         response = await self._invoke_llm([HumanMessage(content=prompt)])
         code = self._extract_code_block(response)
@@ -1928,10 +2002,10 @@ Keep the response concise and friendly (3-4 sentences max).
         df: pd.DataFrame,
         df_name: str,
         should_plot: bool,
-        metadata: Optional[Dict[str, Any]],
-        validation_context: Optional[Dict[str, Any]],
-        react_context: Dict[str, Any]
-    ) -> Dict[str, str]:
+        metadata: dict[str, Any] | None,
+        validation_context: dict[str, Any] | None,
+        react_context: dict[str, Any],
+    ) -> dict[str, str]:
         """Generate code with ReAct reasoning.
 
         Returns:
@@ -1957,7 +2031,7 @@ Keep the response concise and friendly (3-4 sentences max).
             validation_context=validation_context,
             iteration=iteration,
             feedback=feedback,
-            history=history
+            history=history,
         )
 
         response = await self._invoke_llm([HumanMessage(content=react_prompt)])
@@ -1970,7 +2044,19 @@ Keep the response concise and friendly (3-4 sentences max).
         if not code and response.strip():
             # Check if response looks like it could be code (even without fences)
             response_lower = response.lower()
-            python_indicators = ['df.', 'df[', 'result =', 'result=', 'import ', 'def ', 'for ', 'if ', 'groupby', 'mean(', 'sum(']
+            python_indicators = [
+                "df.",
+                "df[",
+                "result =",
+                "result=",
+                "import ",
+                "def ",
+                "for ",
+                "if ",
+                "groupby",
+                "mean(",
+                "sum(",
+            ]
             if any(indicator in response_lower for indicator in python_indicators):
                 # Use the full response as code
                 code = response.strip()
@@ -1985,12 +2071,12 @@ Keep the response concise and friendly (3-4 sentences max).
         """Extract reasoning from <reasoning> tags."""
         import re
 
-        match = re.search(r'<reasoning>(.*?)</reasoning>', response, re.DOTALL | re.IGNORECASE)
+        match = re.search(r"<reasoning>(.*?)</reasoning>", response, re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1).strip()
 
         # Also try <thinking> tags as fallback
-        match = re.search(r'<thinking>(.*?)</thinking>', response, re.DOTALL | re.IGNORECASE)
+        match = re.search(r"<thinking>(.*?)</thinking>", response, re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1).strip()
 
@@ -2001,13 +2087,13 @@ Keep the response concise and friendly (3-4 sentences max).
         query: str,
         columns_str: str,
         dtypes_str: str,
-        sample_rows: List[Dict],
+        sample_rows: list[dict],
         summary_text: str,
         should_plot: bool,
-        validation_context: Optional[Dict[str, Any]],
+        validation_context: dict[str, Any] | None,
         iteration: int,
-        feedback: Optional[str],
-        history: List[Dict[str, Any]]
+        feedback: str | None,
+        history: list[dict[str, Any]],
     ) -> str:
         """Build ReAct-style prompt for code generation."""
 
@@ -2052,7 +2138,7 @@ Available instead: {self._safe_join(available)}
 **Previous Attempts**:
 """
             for hist in history:
-                obs = hist.get('observation', {})
+                obs = hist.get("observation", {})
                 react_section += f"""
 Iteration {hist['iteration'] + 1}:
   Reasoning: {hist.get('reasoning', '')[:200]}...
@@ -2141,7 +2227,7 @@ result = result.head(100)  # Limit to 100 rows
         return base_prompt + react_section + reasoning_section + code_section
 
     def _build_analysis_code_prompt(
-        self, query: str, columns: str, dtypes: str, sample_rows: List[Dict], summary_text: str = ""
+        self, query: str, columns: str, dtypes: str, sample_rows: list[dict], summary_text: str = ""
     ) -> str:
         """Build prompt for analysis code generation (no plotting)."""
         summary_context = f"\nDataset Context:\n{summary_text}\n" if summary_text else ""
@@ -2196,7 +2282,7 @@ result = df.groupby("year")["employment"].mean().sort_values().head(100)
 """
 
     def _build_plot_code_prompt(
-        self, query: str, columns: str, dtypes: str, sample_rows: List[Dict], summary_text: str = ""
+        self, query: str, columns: str, dtypes: str, sample_rows: list[dict], summary_text: str = ""
     ) -> str:
         """Build prompt for plotting code generation."""
         summary_context = f"\nDataset Context:\n{summary_text}\n" if summary_text else ""
@@ -2290,7 +2376,18 @@ plt.close()
         # If no code blocks found, check if response looks like Python code
         # (starts with valid Python keywords or assignments)
         response_stripped = response.strip()
-        python_keywords = ['import', 'from', 'def', 'class', 'if', 'for', 'while', 'result =', 'df.', 'df[']
+        python_keywords = [
+            "import",
+            "from",
+            "def",
+            "class",
+            "if",
+            "for",
+            "while",
+            "result =",
+            "df.",
+            "df[",
+        ]
         if any(response_stripped.startswith(keyword) for keyword in python_keywords):
             return response_stripped
 
@@ -2299,7 +2396,9 @@ plt.close()
         return ""
 
     @staticmethod
-    async def _execute_code_safely(code: str, timeout: float = 5.0, df: Optional[pd.DataFrame] = None, should_plot: bool = False) -> Dict[str, Any]:
+    async def _execute_code_safely(
+        code: str, timeout: float = 5.0, df: pd.DataFrame | None = None, should_plot: bool = False
+    ) -> dict[str, Any]:
         """Execute code safely with timeout and restricted environment.
 
         Static method for testing code execution independently.
@@ -2313,50 +2412,44 @@ plt.close()
         Returns:
             Dict containing execution result or error
         """
-        import sys
 
         # Restricted import function - only allow safe modules
         def safe_import(name, *args, **kwargs):
             # Check if module is allowed
-            base_module = name.split('.')[0]
-            if base_module not in {'pandas', 'numpy', 'matplotlib', 'time', 'datetime'}:
+            base_module = name.split(".")[0]
+            if base_module not in {"pandas", "numpy", "matplotlib", "time", "datetime"}:
                 raise ImportError(f"Import of '{name}' is not allowed")
 
             return __import__(name, *args, **kwargs)
 
         # Setup restricted environment with safe builtins only
         safe_builtins = {
-            'abs': abs,
-            'all': all,
-            'any': any,
-            'bool': bool,
-            'dict': dict,
-            'enumerate': enumerate,
-            'float': float,
-            'int': int,
-            'len': len,
-            'list': list,
-            'max': max,
-            'min': min,
-            'print': print,  # Allow print for debugging output
-            'range': range,
-            'round': round,
-            'set': set,
-            'sorted': sorted,
-            'str': str,
-            'sum': sum,
-            'tuple': tuple,
-            'zip': zip,
-            '__import__': safe_import,  # Restricted import
+            "abs": abs,
+            "all": all,
+            "any": any,
+            "bool": bool,
+            "dict": dict,
+            "enumerate": enumerate,
+            "float": float,
+            "int": int,
+            "len": len,
+            "list": list,
+            "max": max,
+            "min": min,
+            "print": print,  # Allow print for debugging output
+            "range": range,
+            "round": round,
+            "set": set,
+            "sorted": sorted,
+            "str": str,
+            "sum": sum,
+            "tuple": tuple,
+            "zip": zip,
+            "__import__": safe_import,  # Restricted import
             # Block dangerous builtins: open, eval, exec, etc.
         }
 
-        env = {
-            "__builtins__": safe_builtins,
-            "pd": pd,
-            "np": np,
-            "result": None
-        }
+        env = {"__builtins__": safe_builtins, "pd": pd, "np": np, "result": None}
 
         if df is not None:
             env["df"] = df.copy()
@@ -2364,8 +2457,9 @@ plt.close()
         if should_plot:
             import matplotlib
             import matplotlib.pyplot as plt
+
             # Use non-interactive backend
-            matplotlib.use('Agg')
+            matplotlib.use("Agg")
             env["plt"] = plt
             env["matplotlib"] = matplotlib
 
@@ -2378,14 +2472,13 @@ plt.close()
                 return env.get("result")
 
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, execute_sync),
-                timeout=timeout
+                loop.run_in_executor(None, execute_sync), timeout=timeout
             )
 
             logger.info(f"Code executed successfully, result type: {type(result).__name__}")
             return {"result": result, "error": None}
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"Code execution timeout (>{timeout} seconds)")
             raise TimeoutError(f"Code execution timeout (>{timeout} seconds)")
         except Exception as e:
@@ -2394,19 +2487,22 @@ plt.close()
 
     async def _execute_safe(
         self, code: str, df: pd.DataFrame, should_plot: bool
-    ) -> Tuple[Any, Optional[str]]:
+    ) -> tuple[Any, str | None]:
         """Execute code in controlled environment with safety checks."""
         try:
-            result_dict = await self._execute_code_safely(code, timeout=5.0, df=df, should_plot=should_plot)
+            result_dict = await self._execute_code_safely(
+                code, timeout=5.0, df=df, should_plot=should_plot
+            )
             return result_dict["result"], result_dict["error"]
         except TimeoutError as e:
             return None, str(e)
         except Exception as e:
             return None, f"Execution error: {str(e)}"
 
-    async def _generate_explanation(self, query: str, result: Any, validation_context: Optional[Dict[str, Any]] = None) -> str:
+    async def _generate_explanation(
+        self, query: str, result: Any, validation_context: dict[str, Any] | None = None
+    ) -> str:
         """Generate natural language explanation using LLM with validation awareness."""
-        import matplotlib.pyplot as plt
         from matplotlib.figure import Figure
 
         if isinstance(result, Figure):
@@ -2472,8 +2568,8 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
     # ======= Visualization Extraction Helper Methods =======
 
     def _extract_viz_from_figure(
-        self, fig, original_query: str, validation: Optional[Dict[str, Any]] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, fig, original_query: str, validation: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """Extract data from matplotlib Figure and convert to VisualizationData format.
 
         Uses chart's own title/labels instead of user's question when data doesn't match request.
@@ -2515,7 +2611,7 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
             logger.warning(f"Failed to extract viz from figure: {e}", exc_info=True)
             return None
 
-    def _extract_bar_data(self, ax, title: str) -> Dict[str, Any]:
+    def _extract_bar_data(self, ax, title: str) -> dict[str, Any]:
         """Extract bar chart data from matplotlib axes."""
         try:
             bars = ax.containers[0] if ax.containers else None
@@ -2532,12 +2628,14 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
 
             # SMART AXIS SWAP DETECTION
             # Check if axes are swapped (year/temporal on y-axis instead of x-axis)
-            temporal_keywords = ['year', 'date', 'month', 'quarter', 'time']
+            temporal_keywords = ["year", "date", "month", "quarter", "time"]
             y_is_temporal = any(keyword in y_label.lower() for keyword in temporal_keywords)
             x_is_temporal = any(keyword in x_label.lower() for keyword in temporal_keywords)
 
             # Check if y-axis values look like years
-            y_looks_like_years = any(1900 <= h <= 2100 for h in heights if isinstance(h, (int, float)))
+            y_looks_like_years = any(
+                1900 <= h <= 2100 for h in heights if isinstance(h, (int, float))
+            )
 
             should_swap = y_is_temporal or (y_looks_like_years and not x_is_temporal)
 
@@ -2568,13 +2666,13 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 "y_axis": y_key,
                 "x_label": x_label,  # Add human-readable label
                 "y_label": y_label,  # Add human-readable label
-                "description": f"{y_label} by {x_label}"
+                "description": f"{y_label} by {x_label}",
             }
         except Exception as e:
             logger.warning(f"Failed to extract bar data: {e}")
             return None
 
-    def _extract_line_data(self, ax, title: str) -> Dict[str, Any]:
+    def _extract_line_data(self, ax, title: str) -> dict[str, Any]:
         """Extract line chart data from matplotlib axes."""
         try:
             lines = ax.get_lines()
@@ -2587,7 +2685,10 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 # Strategy 1: Find line with "total" or "aggregate" in label
                 for l in lines:
                     label = l.get_label().lower() if l.get_label() else ""
-                    if any(keyword in label for keyword in ['total', 'aggregate', 'overall', 'combined']):
+                    if any(
+                        keyword in label
+                        for keyword in ["total", "aggregate", "overall", "combined"]
+                    ):
                         line = l
                         logger.info(f"Selected aggregate line: {l.get_label()}")
                         break
@@ -2596,13 +2697,17 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                     thickest = max(lines, key=lambda l: l.get_linewidth())
                     if thickest.get_linewidth() > lines[0].get_linewidth():
                         line = thickest
-                        logger.info(f"Selected thickest line (width={thickest.get_linewidth()}): {thickest.get_label()}")
+                        logger.info(
+                            f"Selected thickest line (width={thickest.get_linewidth()}): {thickest.get_label()}"
+                        )
                     else:
                         # Strategy 3: Use the line with the most data points (most complete time series)
                         longest = max(lines, key=lambda l: len(l.get_xdata()))
                         if len(longest.get_xdata()) > len(lines[0].get_xdata()):
                             line = longest
-                            logger.info(f"Selected longest line ({len(longest.get_xdata())} points): {longest.get_label()}")
+                            logger.info(
+                                f"Selected longest line ({len(longest.get_xdata())} points): {longest.get_label()}"
+                            )
 
             x_data = line.get_xdata()
             y_data = line.get_ydata()
@@ -2628,17 +2733,21 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 x_labels = safe_labels
 
             # SMART AXIS SWAP DETECTION
-            temporal_keywords = ['year', 'date', 'month', 'quarter', 'time']
+            temporal_keywords = ["year", "date", "month", "quarter", "time"]
             y_is_temporal = any(keyword in y_label.lower() for keyword in temporal_keywords)
             x_is_temporal = any(keyword in x_label.lower() for keyword in temporal_keywords)
 
             # Check if y-data looks like years
-            y_looks_like_years = any(1900 <= y <= 2100 for y in y_data if isinstance(y, (int, float)))
+            y_looks_like_years = any(
+                1900 <= y <= 2100 for y in y_data if isinstance(y, (int, float))
+            )
 
             should_swap = y_is_temporal or (y_looks_like_years and not x_is_temporal)
 
             if should_swap:
-                logger.info(f"Detected swapped axes in line chart! Swapping '{x_label}' (x) <-> '{y_label}' (y)")
+                logger.info(
+                    f"Detected swapped axes in line chart! Swapping '{x_label}' (x) <-> '{y_label}' (y)"
+                )
                 # Swap axes
                 x_data, y_data = y_data, x_data
                 x_labels = [str(x) for x in x_data]
@@ -2649,7 +2758,7 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
             y_key = y_label.lower().replace(" ", "_")[:20] or "y"
 
             data = []
-            for label, y in zip(x_labels[:len(y_data)], y_data):
+            for label, y in zip(x_labels[: len(y_data)], y_data):
                 if label:
                     data.append({x_key: str(label), y_key: float(y)})
 
@@ -2664,15 +2773,15 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 "y_axis": y_key,
                 "x_label": x_label,  # Add human-readable label
                 "y_label": y_label,  # Add human-readable label
-                "description": f"{y_label} over {x_label}"
+                "description": f"{y_label} over {x_label}",
             }
         except Exception as e:
             logger.warning(f"Failed to extract line data: {e}")
             return None
 
     def _generate_viz_from_dataframe(
-        self, df_or_series, original_query: str, validation: Optional[Dict[str, Any]] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, df_or_series, original_query: str, validation: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """Generate visualization from DataFrame or Series.
 
         Uses descriptive titles based on actual data, not user's question when data doesn't match.
@@ -2694,14 +2803,23 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
             y_col = None
 
             # Priority 1: Look for 'year', 'date', 'month' columns for x-axis (temporal)
-            temporal_keywords = ['year', 'date', 'month', 'quarter', 'time', 'period']
+            temporal_keywords = ["year", "date", "month", "quarter", "time", "period"]
             for col in df.columns:
                 if any(keyword in col.lower() for keyword in temporal_keywords):
                     x_col = col
                     break
 
             # Priority 2: Find metric column for y-axis (employment_rate, count, value, etc.)
-            metric_keywords = ['rate', 'count', 'value', 'change', 'percentage', 'total', 'number', 'amount']
+            metric_keywords = [
+                "rate",
+                "count",
+                "value",
+                "change",
+                "percentage",
+                "total",
+                "number",
+                "amount",
+            ]
             for col in df.columns:
                 if col != x_col and pd.api.types.is_numeric_dtype(df[col]):
                     # Prefer columns with metric keywords in name
@@ -2736,10 +2854,12 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
             data = []
             for _, row in df_limited.iterrows():
                 try:
-                    data.append({
-                        x_col: str(row[x_col]),
-                        y_col: float(row[y_col]) if pd.notna(row[y_col]) else 0
-                    })
+                    data.append(
+                        {
+                            x_col: str(row[x_col]),
+                            y_col: float(row[y_col]) if pd.notna(row[y_col]) else 0,
+                        }
+                    )
                 except (ValueError, TypeError):
                     continue
 
@@ -2769,13 +2889,13 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 "y_axis": y_col,
                 "x_label": x_label,
                 "y_label": y_label,
-                "description": f"{y_label} across different {x_label} values"
+                "description": f"{y_label} across different {x_label} values",
             }
         except Exception as e:
             logger.warning(f"Failed to generate viz from DataFrame: {e}", exc_info=True)
             return None
 
-    def _generate_html_chart(self, viz_data: Dict[str, Any]) -> Optional[str]:
+    def _generate_html_chart(self, viz_data: dict[str, Any]) -> str | None:
         """Generate interactive HTML chart using Plotly.
 
         Args:
@@ -2786,7 +2906,6 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
         """
         try:
             import plotly.graph_objects as go
-            import plotly.express as px
 
             chart_type = viz_data.get("chart_type", "bar")
             data = viz_data.get("data", [])
@@ -2806,40 +2925,41 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
 
             # Create figure based on chart type
             if chart_type == "line":
-                fig = go.Figure(data=go.Scatter(
-                    x=x_values,
-                    y=y_values,
-                    mode='lines+markers',
-                    name=y_label,
-                    line=dict(color='#3b82f6', width=3),
-                    marker=dict(size=8)
-                ))
+                fig = go.Figure(
+                    data=go.Scatter(
+                        x=x_values,
+                        y=y_values,
+                        mode="lines+markers",
+                        name=y_label,
+                        line=dict(color="#3b82f6", width=3),
+                        marker=dict(size=8),
+                    )
+                )
             elif chart_type == "bar":
-                fig = go.Figure(data=go.Bar(
-                    x=x_values,
-                    y=y_values,
-                    name=y_label,
-                    marker=dict(color='#3b82f6')
-                ))
+                fig = go.Figure(
+                    data=go.Bar(x=x_values, y=y_values, name=y_label, marker=dict(color="#3b82f6"))
+                )
             elif chart_type == "scatter":
-                fig = go.Figure(data=go.Scatter(
-                    x=x_values,
-                    y=y_values,
-                    mode='markers',
-                    name=y_label,
-                    marker=dict(size=10, color='#3b82f6')
-                ))
+                fig = go.Figure(
+                    data=go.Scatter(
+                        x=x_values,
+                        y=y_values,
+                        mode="markers",
+                        name=y_label,
+                        marker=dict(size=10, color="#3b82f6"),
+                    )
+                )
             else:
                 # Default to bar chart
                 fig = go.Figure(data=go.Bar(x=x_values, y=y_values))
 
             # Update layout
             fig.update_layout(
-                title=dict(text=title, x=0.5, xanchor='center', font=dict(size=18)),
+                title=dict(text=title, x=0.5, xanchor="center", font=dict(size=18)),
                 xaxis_title=x_label,
                 yaxis_title=y_label,
-                template='plotly_white',
-                hovermode='x unified',
+                template="plotly_white",
+                hovermode="x unified",
                 showlegend=False,
                 height=400,
                 margin=dict(l=60, r=40, t=60, b=60),
@@ -2851,12 +2971,12 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 include_plotlyjs=True,  # Inline the library instead of CDN
                 full_html=True,  # Generate complete HTML document with DOCTYPE
                 config={
-                    'displayModeBar': True,
-                    'responsive': True,
-                    'displaylogo': False,
-                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
+                    "displayModeBar": True,
+                    "responsive": True,
+                    "displaylogo": False,
+                    "modeBarButtonsToRemove": ["pan2d", "lasso2d", "select2d"],
                 },
-                div_id='plotly-chart'
+                div_id="plotly-chart",
             )
 
             logger.info(f"Generated HTML chart: {chart_type}, {len(data)} points")

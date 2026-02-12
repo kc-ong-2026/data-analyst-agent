@@ -1,9 +1,9 @@
 """Checkpoint service for managing workflow pause/resume."""
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.services.agents.base_agent import GraphState
 
@@ -15,22 +15,22 @@ class WorkflowCheckpoint:
     id: str
     conversation_id: str
     original_query: str
-    graph_state: Dict[str, Any]  # Serialized GraphState
+    graph_state: dict[str, Any]  # Serialized GraphState
     agent_step: str
-    waiting_for: Dict[str, Any]
+    waiting_for: dict[str, Any]
     created_at: datetime
     expires_at: datetime
 
     def is_expired(self) -> bool:
         """Check if checkpoint has expired."""
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
 
 class CheckpointService:
     """Service for managing workflow checkpoints (in-memory for now)."""
 
     def __init__(self, expiration_minutes: int = 30):
-        self.checkpoints: Dict[str, WorkflowCheckpoint] = {}
+        self.checkpoints: dict[str, WorkflowCheckpoint] = {}
         self.expiration_minutes = expiration_minutes
 
     def create_checkpoint(
@@ -39,11 +39,11 @@ class CheckpointService:
         original_query: str,
         graph_state: GraphState,
         agent_step: str,
-        waiting_for: Dict[str, Any],
+        waiting_for: dict[str, Any],
     ) -> str:
         """Create a new checkpoint and return its ID."""
         checkpoint_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         checkpoint = WorkflowCheckpoint(
             id=checkpoint_id,
@@ -59,7 +59,7 @@ class CheckpointService:
         self.checkpoints[checkpoint_id] = checkpoint
         return checkpoint_id
 
-    def get_checkpoint(self, checkpoint_id: str) -> Optional[WorkflowCheckpoint]:
+    def get_checkpoint(self, checkpoint_id: str) -> WorkflowCheckpoint | None:
         """Retrieve a checkpoint by ID."""
         checkpoint = self.checkpoints.get(checkpoint_id)
 
@@ -74,24 +74,30 @@ class CheckpointService:
         if checkpoint_id in self.checkpoints:
             del self.checkpoints[checkpoint_id]
 
-    def find_checkpoint_by_conversation(self, conversation_id: str) -> Optional[WorkflowCheckpoint]:
+    def find_checkpoint_by_conversation(self, conversation_id: str) -> WorkflowCheckpoint | None:
         """Find the most recent checkpoint for a conversation."""
         import logging
+
         logger = logging.getLogger(__name__)
 
         logger.info(f"Looking for checkpoints with conversation_id: '{conversation_id}'")
         logger.info(f"Total checkpoints in memory: {len(self.checkpoints)}")
 
         for cid, cp in self.checkpoints.items():
-            logger.info(f"Checkpoint {cid}: conversation_id='{cp.conversation_id}', expired={cp.is_expired()}")
+            logger.info(
+                f"Checkpoint {cid}: conversation_id='{cp.conversation_id}', expired={cp.is_expired()}"
+            )
 
         matching_checkpoints = [
-            cp for cp in self.checkpoints.values()
+            cp
+            for cp in self.checkpoints.values()
             if cp.conversation_id == conversation_id and not cp.is_expired()
         ]
 
         if not matching_checkpoints:
-            logger.warning(f"No matching checkpoints found for conversation_id: '{conversation_id}'")
+            logger.warning(
+                f"No matching checkpoints found for conversation_id: '{conversation_id}'"
+            )
             return None
 
         # Return most recent (by created_at)
@@ -101,10 +107,7 @@ class CheckpointService:
 
     def cleanup_expired(self):
         """Remove expired checkpoints."""
-        expired_ids = [
-            cid for cid, cp in self.checkpoints.items()
-            if cp.is_expired()
-        ]
+        expired_ids = [cid for cid, cp in self.checkpoints.items() if cp.is_expired()]
         for cid in expired_ids:
             del self.checkpoints[cid]
 

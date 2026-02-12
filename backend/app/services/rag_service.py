@@ -1,16 +1,16 @@
 """RAG service with folder-based hybrid vector + BM25 search, RRF fusion, and cross-encoder reranking."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import logging
 import pickle
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from rank_bm25 import BM25Okapi
-from sqlalchemy import text, select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config
@@ -18,11 +18,10 @@ from app.db.models import (
     EmploymentDatasetMetadata,
     HoursWorkedDatasetMetadata,
     IncomeDatasetMetadata,
-    FolderMetadataBase,
 )
 from app.db.session import get_db
 from app.services.llm_service import get_embedding_service
-from app.services.rag_models import MetadataResult, TableSchema, FolderRetrievalResult
+from app.services.rag_models import FolderRetrievalResult, MetadataResult, TableSchema
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ class RAGService:
     """Hybrid retrieval engine using folder-based metadata with pgvector + full-text search with RRF fusion."""
 
     # List of (category_name, model_class, table_name) tuples
-    FOLDER_TABLES: List[Tuple[str, type, str]] = [
+    FOLDER_TABLES: list[tuple[str, type, str]] = [
         ("employment", EmploymentDatasetMetadata, "employment_dataset_metadata"),
         ("hours_worked", HoursWorkedDatasetMetadata, "hours_worked_dataset_metadata"),
         ("income", IncomeDatasetMetadata, "income_dataset_metadata"),
@@ -59,11 +58,11 @@ class RAGService:
     async def retrieve(
         self,
         query: str,
-        top_k: Optional[int] = None,
-        category_filter: Optional[str] = None,
-        year_filter: Optional[Dict[str, int]] = None,
-        use_reranking: Optional[bool] = None,
-        query_embedding: Optional[List[float]] = None,
+        top_k: int | None = None,
+        category_filter: str | None = None,
+        year_filter: dict[str, int] | None = None,
+        use_reranking: bool | None = None,
+        query_embedding: list[float] | None = None,
     ) -> FolderRetrievalResult:
         """Perform hybrid retrieval across folder metadata tables with optional reranking.
 
@@ -86,22 +85,27 @@ class RAGService:
             embedding_service = get_embedding_service()
             query_embedding = await embedding_service.embed_query(query)
         else:
-            logger.info(f"[PERF] Using pre-computed query embedding, skipping re-embedding")
+            logger.info("[PERF] Using pre-computed query embedding, skipping re-embedding")
 
         async with get_db() as session:
-            all_metadata_results: List[MetadataResult] = []
+            all_metadata_results: list[MetadataResult] = []
 
             # Search each folder table (or just the filtered category)
             folders_to_search = self.FOLDER_TABLES
             if category_filter:
                 logger.info(f"[RAG FILTER] Applying category filter: {category_filter}")
                 folders_to_search = [
-                    (cat, model, table) for cat, model, table in self.FOLDER_TABLES
+                    (cat, model, table)
+                    for cat, model, table in self.FOLDER_TABLES
                     if cat == category_filter
                 ]
-                logger.info(f"[RAG FILTER] Narrowed search from {len(self.FOLDER_TABLES)} tables to {len(folders_to_search)} table(s)")
+                logger.info(
+                    f"[RAG FILTER] Narrowed search from {len(self.FOLDER_TABLES)} tables to {len(folders_to_search)} table(s)"
+                )
             else:
-                logger.info(f"[RAG FILTER] No category filter - searching all {len(self.FOLDER_TABLES)} tables")
+                logger.info(
+                    f"[RAG FILTER] No category filter - searching all {len(self.FOLDER_TABLES)} tables"
+                )
 
             for category, model_class, table_name in folders_to_search:
                 logger.info(f"Searching folder table: {category} ({table_name})")
@@ -123,7 +127,9 @@ class RAGService:
 
             # Apply reranking if enabled
             if use_reranking and top_metadata_results:
-                logger.info(f"Applying cross-encoder reranking to {len(top_metadata_results)} results")
+                logger.info(
+                    f"Applying cross-encoder reranking to {len(top_metadata_results)} results"
+                )
                 top_metadata_results = await self._rerank_results(query, top_metadata_results)
 
             # Get full table schemas for SQL generation
@@ -143,9 +149,9 @@ class RAGService:
         table_name: str,
         category: str,
         query: str,
-        query_embedding: List[float],
-        year_filter: Optional[Dict[str, int]],
-    ) -> List[MetadataResult]:
+        query_embedding: list[float],
+        year_filter: dict[str, int] | None,
+    ) -> list[MetadataResult]:
         """Perform hybrid search (vector + BM25/full-text + RRF) on a single folder metadata table.
 
         Args:
@@ -185,14 +191,14 @@ class RAGService:
         session: AsyncSession,
         table_name: str,
         category: str,
-        query_embedding: List[float],
-        year_filter: Optional[Dict[str, int]],
-    ) -> List[MetadataResult]:
+        query_embedding: list[float],
+        year_filter: dict[str, int] | None,
+    ) -> list[MetadataResult]:
         """Perform cosine similarity search on folder metadata embeddings."""
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
         where_clauses = ["m.embedding IS NOT NULL"]
-        params: Dict[str, Any] = {"limit": self.vector_top_k}
+        params: dict[str, Any] = {"limit": self.vector_top_k}
 
         if year_filter:
             if year_filter.get("start"):
@@ -204,7 +210,8 @@ class RAGService:
 
         where_sql = " AND ".join(where_clauses)
 
-        sql = text(f"""
+        sql = text(
+            f"""
             SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
                    m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
                    m.row_count, m.year_range, m.summary_text,
@@ -213,7 +220,8 @@ class RAGService:
             WHERE {where_sql}
             ORDER BY distance
             LIMIT :limit
-        """)
+        """
+        )
 
         result = await session.execute(sql, params)
         rows = result.fetchall()
@@ -244,11 +252,11 @@ class RAGService:
         table_name: str,
         category: str,
         query: str,
-        year_filter: Optional[Dict[str, int]],
-    ) -> List[MetadataResult]:
+        year_filter: dict[str, int] | None,
+    ) -> list[MetadataResult]:
         """Perform full-text search using tsvector/tsquery on folder metadata."""
         where_clauses = ["m.tsv IS NOT NULL"]
-        params: Dict[str, Any] = {"query": query, "limit": self.fulltext_top_k}
+        params: dict[str, Any] = {"query": query, "limit": self.fulltext_top_k}
 
         if year_filter:
             if year_filter.get("start"):
@@ -260,7 +268,8 @@ class RAGService:
 
         where_sql = " AND ".join(where_clauses)
 
-        sql = text(f"""
+        sql = text(
+            f"""
             SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
                    m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
                    m.row_count, m.year_range, m.summary_text,
@@ -270,7 +279,8 @@ class RAGService:
               AND m.tsv @@ plainto_tsquery('english', :query)
             ORDER BY rank DESC
             LIMIT :limit
-        """)
+        """
+        )
 
         result = await session.execute(sql, params)
         rows = result.fetchall()
@@ -301,8 +311,8 @@ class RAGService:
         table_name: str,
         category: str,
         query: str,
-        year_filter: Optional[Dict[str, int]],
-    ) -> List[MetadataResult]:
+        year_filter: dict[str, int] | None,
+    ) -> list[MetadataResult]:
         """Perform BM25 search on folder metadata with disk persistence.
 
         Replaces PostgreSQL full-text search with proper BM25 ranking.
@@ -319,7 +329,7 @@ class RAGService:
         # Try to load from disk if not in memory
         elif cache_file.exists():
             try:
-                with open(cache_file, 'rb') as f:
+                with open(cache_file, "rb") as f:
                     bm25, rows = pickle.load(f)
                 self._bm25_cache[cache_key] = (bm25, rows)
                 logger.info(f"[BM25 CACHE] Loaded from disk: {cache_key} ({len(rows)} docs)")
@@ -345,14 +355,16 @@ class RAGService:
 
             where_sql = " AND ".join(where_clauses)
 
-            sql = text(f"""
+            sql = text(
+                f"""
                 SELECT m.id, m.file_name, m.file_path, m.table_name, m.description,
                        m.columns, m.primary_dimensions, m.numeric_columns, m.categorical_columns,
                        m.row_count, m.year_range, m.summary_text
                 FROM {table_name} m
                 WHERE {where_sql}
                 LIMIT :limit
-            """)
+            """
+            )
 
             result = await session.execute(sql, params)
             rows = result.fetchall()
@@ -370,7 +382,7 @@ class RAGService:
 
             # Persist to disk
             try:
-                with open(cache_file, 'wb') as f:
+                with open(cache_file, "wb") as f:
                     pickle.dump((bm25, rows), f)
                 logger.info(f"[BM25 CACHE] Persisted to disk: {cache_key}")
             except Exception as e:
@@ -381,7 +393,9 @@ class RAGService:
         scores = bm25.get_scores(query_tokens)
 
         # Get top results
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:self.fulltext_top_k]
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[
+            : self.fulltext_top_k
+        ]
 
         results = []
         for idx in top_indices:
@@ -421,7 +435,7 @@ class RAGService:
         for cache_file in self._bm25_cache_dir.glob("*.pkl"):
             cache_key = cache_file.stem
             try:
-                with open(cache_file, 'rb') as f:
+                with open(cache_file, "rb") as f:
                     bm25, rows = pickle.load(f)
                 self._bm25_cache[cache_key] = (bm25, rows)
                 loaded_count += 1
@@ -451,17 +465,17 @@ class RAGService:
 
         logger.info("[BM25 CACHE] Cache cleared")
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """Tokenize text for BM25 (simple whitespace + lowercase)."""
         if not text:
             return []
-        return re.findall(r'\w+', text.lower())
+        return re.findall(r"\w+", text.lower())
 
     async def _rerank_results(
         self,
         query: str,
-        metadata_results: List[MetadataResult],
-    ) -> List[MetadataResult]:
+        metadata_results: list[MetadataResult],
+    ) -> list[MetadataResult]:
         """Rerank metadata results using cross-encoder (async, non-blocking).
 
         Args:
@@ -482,6 +496,7 @@ class RAGService:
 
         # Offload CPU-bound reranking to thread pool (non-blocking)
         from app.services.reranker import get_reranker
+
         reranker = get_reranker()
 
         loop = asyncio.get_event_loop()
@@ -517,13 +532,13 @@ class RAGService:
 
     def _rrf_fuse_metadata(
         self,
-        vector_results: List[MetadataResult],
-        fulltext_results: List[MetadataResult],
+        vector_results: list[MetadataResult],
+        fulltext_results: list[MetadataResult],
         top_k: int,
-    ) -> List[MetadataResult]:
+    ) -> list[MetadataResult]:
         """Reciprocal Rank Fusion to combine vector and full-text metadata results."""
-        scores: Dict[int, float] = defaultdict(float)
-        metadata_by_id: Dict[int, MetadataResult] = {}
+        scores: dict[int, float] = defaultdict(float)
+        metadata_by_id: dict[int, MetadataResult] = {}
 
         # Score from vector search
         for rank, metadata in enumerate(vector_results):
@@ -550,8 +565,8 @@ class RAGService:
     async def _get_table_schemas(
         self,
         session: AsyncSession,
-        metadata_results: List[MetadataResult],
-    ) -> List[TableSchema]:
+        metadata_results: list[MetadataResult],
+    ) -> list[TableSchema]:
         """Fetch full table schemas for SQL generation.
 
         Args:
@@ -567,7 +582,7 @@ class RAGService:
         scores_by_id = {r.metadata_id: r.score for r in metadata_results}
 
         # Group by category to minimize queries
-        by_category: Dict[str, List[MetadataResult]] = defaultdict(list)
+        by_category: dict[str, list[MetadataResult]] = defaultdict(list)
         for result in metadata_results:
             by_category[result.category].append(result)
 
@@ -606,8 +621,11 @@ class RAGService:
                         row_count=row.row_count or 0,
                         year_range=row.year_range,
                         sql_schema_prompt=row.get_sql_schema_prompt(),
-                        summary_text=getattr(row, 'summary_text', '') or "",  # Rich context about dataset
-                        file_path=getattr(row, 'file_path', None),  # Include file path for DataFrame loading
+                        summary_text=getattr(row, "summary_text", "")
+                        or "",  # Rich context about dataset
+                        file_path=getattr(
+                            row, "file_path", None
+                        ),  # Include file path for DataFrame loading
                         score=scores_by_id.get(row.id, 0.0),  # Include relevance score
                     )
                 )

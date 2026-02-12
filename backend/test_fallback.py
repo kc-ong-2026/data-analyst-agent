@@ -8,20 +8,13 @@ This script tests:
 4. Error classification works correctly
 """
 
-import asyncio
 import sys
-from langchain_core.messages import HumanMessage
 
 # Add app to path
-sys.path.insert(0, '/app')
+sys.path.insert(0, "/app")
 
-from app.services.llm_exceptions import (
-    TransientLLMError,
-    PermanentLLMError,
-    TokenLimitError,
-)
-from app.services.llm_resilience import get_resilient_llm_service
 from app.config import get_config
+from app.services.llm_resilience import get_resilient_llm_service
 
 
 def test_configuration():
@@ -33,10 +26,12 @@ def test_configuration():
     config = get_config()
     fallback_config = config.get_fallback_config()
 
-    assert fallback_config['enabled'] == True, "Fallback should be enabled"
-    assert 'anthropic' in fallback_config['provider_chain'], "Anthropic should be in provider chain"
-    assert fallback_config['retry']['max_attempts'] == 3, "Max attempts should be 3"
-    assert fallback_config['circuit_breaker']['enabled'] == True, "Circuit breaker should be enabled"
+    assert fallback_config["enabled"] == True, "Fallback should be enabled"
+    assert "anthropic" in fallback_config["provider_chain"], "Anthropic should be in provider chain"
+    assert fallback_config["retry"]["max_attempts"] == 3, "Max attempts should be 3"
+    assert (
+        fallback_config["circuit_breaker"]["enabled"] == True
+    ), "Circuit breaker should be enabled"
 
     print("✅ Configuration loaded correctly:")
     print(f"   - Enabled: {fallback_config['enabled']}")
@@ -56,14 +51,16 @@ def test_resilient_service_initialization():
 
     # Check circuit breakers are initialized
     assert len(resilient_service.circuit_breakers) > 0, "Circuit breakers should be initialized"
-    assert 'anthropic' in resilient_service.circuit_breakers, "Anthropic circuit breaker should exist"
+    assert (
+        "anthropic" in resilient_service.circuit_breakers
+    ), "Anthropic circuit breaker should exist"
 
     # Check provider chain
     provider_chain = resilient_service._get_provider_chain(None)
     assert len(provider_chain) > 0, "Provider chain should not be empty"
 
     # Check model chain
-    model_chain = resilient_service._get_model_chain('anthropic', None)
+    model_chain = resilient_service._get_model_chain("anthropic", None)
     assert len(model_chain) > 0, "Model chain should not be empty"
 
     print("✅ ResilientLLMService initialized correctly:")
@@ -82,7 +79,7 @@ def test_error_classification():
     from app.services.llm_service import LLMService
 
     # Create a mock LLM service
-    llm_service = LLMService(provider='anthropic')
+    llm_service = LLMService(provider="anthropic")
 
     # Test transient error detection
     class MockTransientError(Exception):
@@ -118,18 +115,21 @@ def test_base_agent_integration():
     assert should_enable == True, "Fallback should be enabled based on config"
 
     # Verify BaseAgent has the _invoke_llm method with enable_fallback parameter
-    from app.services.agents.base_agent import BaseAgent
     import inspect
+
+    from app.services.agents.base_agent import BaseAgent
 
     invoke_llm_signature = inspect.signature(BaseAgent._invoke_llm)
     params = list(invoke_llm_signature.parameters.keys())
 
-    assert 'enable_fallback' in params, "BaseAgent._invoke_llm should have enable_fallback parameter"
+    assert (
+        "enable_fallback" in params
+    ), "BaseAgent._invoke_llm should have enable_fallback parameter"
 
     print("✅ BaseAgent integration validated:")
     print(f"   - Fallback enabled in config: {should_enable}")
     print(f"   - BaseAgent._invoke_llm parameters: {params}")
-    print(f"   - enable_fallback parameter exists: True")
+    print("   - enable_fallback parameter exists: True")
     print()
 
 
@@ -146,13 +146,13 @@ def test_provider_chain_ordering():
     print(f"   Default chain: {chain_default}")
 
     # Test with openai as primary
-    chain_openai = resilient_service._get_provider_chain('openai')
-    assert chain_openai[0] == 'openai', "OpenAI should be first when specified as primary"
+    chain_openai = resilient_service._get_provider_chain("openai")
+    assert chain_openai[0] == "openai", "OpenAI should be first when specified as primary"
     print(f"   With primary=openai: {chain_openai}")
 
     # Test with anthropic as primary
-    chain_anthropic = resilient_service._get_provider_chain('anthropic')
-    assert chain_anthropic[0] == 'anthropic', "Anthropic should be first when specified as primary"
+    chain_anthropic = resilient_service._get_provider_chain("anthropic")
+    assert chain_anthropic[0] == "anthropic", "Anthropic should be first when specified as primary"
     print(f"   With primary=anthropic: {chain_anthropic}")
 
     print("✅ Provider chain ordering works correctly")
@@ -168,17 +168,19 @@ def test_model_chain_ordering():
     resilient_service = get_resilient_llm_service()
 
     # Test Anthropic model chain with no primary
-    chain_default = resilient_service._get_model_chain('anthropic', None)
+    chain_default = resilient_service._get_model_chain("anthropic", None)
     print(f"   Default Anthropic chain: {chain_default}")
 
     # Test with Opus as primary
-    chain_opus = resilient_service._get_model_chain('anthropic', 'claude-opus-4-6')
-    assert chain_opus[0] == 'claude-opus-4-6', "Opus should be first when specified as primary"
+    chain_opus = resilient_service._get_model_chain("anthropic", "claude-opus-4-6")
+    assert chain_opus[0] == "claude-opus-4-6", "Opus should be first when specified as primary"
     print(f"   With primary=opus: {chain_opus}")
 
     # Test with Haiku as primary
-    chain_haiku = resilient_service._get_model_chain('anthropic', 'claude-3-haiku-20240307')
-    assert chain_haiku[0] == 'claude-3-haiku-20240307', "Haiku should be first when specified as primary"
+    chain_haiku = resilient_service._get_model_chain("anthropic", "claude-3-haiku-20240307")
+    assert (
+        chain_haiku[0] == "claude-3-haiku-20240307"
+    ), "Haiku should be first when specified as primary"
     print(f"   With primary=haiku: {chain_haiku}")
 
     print("✅ Model chain ordering works correctly")
@@ -221,6 +223,7 @@ def main():
     except Exception as e:
         print(f"\n❌ UNEXPECTED ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

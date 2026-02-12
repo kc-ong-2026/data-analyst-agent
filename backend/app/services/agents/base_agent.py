@@ -1,18 +1,19 @@
 """Abstract base class for all agents using LangGraph."""
 
+import operator
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Annotated, Dict, List, Optional, TypedDict, Union
-import operator
+from typing import Annotated, Any, TypedDict
 
-from pydantic import BaseModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph
+from pydantic import BaseModel
 
 
 class AgentRole(Enum):
     """Enum defining agent roles in the system."""
+
     VERIFICATION = "verification"
     COORDINATOR = "coordinator"
     EXTRACTION = "extraction"
@@ -21,33 +22,34 @@ class AgentRole(Enum):
 
 class GraphState(TypedDict):
     """Base state for LangGraph nodes."""
-    messages: Annotated[List[BaseMessage], operator.add]
+
+    messages: Annotated[list[BaseMessage], operator.add]
     current_task: str
-    extracted_data: Dict[str, Any]
-    analysis_results: Dict[str, Any]
-    workflow_plan: List[Dict[str, Any]]
+    extracted_data: dict[str, Any]
+    analysis_results: dict[str, Any]
+    workflow_plan: list[dict[str, Any]]
     current_step: int
-    errors: List[str]
-    metadata: Dict[str, Any]
-    intermediate_results: Dict[str, Any]
+    errors: list[str]
+    metadata: dict[str, Any]
+    intermediate_results: dict[str, Any]
     should_continue: bool
-    retrieval_context: Dict[str, Any]  # Includes table_schemas and metadata for data loading
-    query_validation: Dict[str, Any]  # Validation result and context
-    available_years: Dict[str, Dict[str, int]]  # Year ranges by category
+    retrieval_context: dict[str, Any]  # Includes table_schemas and metadata for data loading
+    query_validation: dict[str, Any]  # Validation result and context
+    available_years: dict[str, dict[str, int]]  # Year ranges by category
 
 
 @dataclass
 class AgentState:
     """State shared between agents during task execution."""
 
-    messages: List[BaseMessage] = field(default_factory=list)
-    current_task: Optional[str] = None
-    extracted_data: Dict[str, Any] = field(default_factory=dict)
-    analysis_results: Dict[str, Any] = field(default_factory=dict)
-    workflow_plan: List[Dict[str, Any]] = field(default_factory=list)
+    messages: list[BaseMessage] = field(default_factory=list)
+    current_task: str | None = None
+    extracted_data: dict[str, Any] = field(default_factory=dict)
+    analysis_results: dict[str, Any] = field(default_factory=dict)
+    workflow_plan: list[dict[str, Any]] = field(default_factory=list)
     current_step: int = 0
-    errors: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_message(self, role: str, content: str) -> None:
         """Add a message to the state."""
@@ -108,7 +110,7 @@ class AgentState:
 
         return state
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert state to dictionary."""
         return {
             "current_task": self.current_task,
@@ -131,12 +133,12 @@ class AgentResponse:
 
     success: bool
     message: str
-    data: Union[BaseModel, Dict[str, Any]] = field(default_factory=dict)
-    visualization: Optional[Union[BaseModel, Dict[str, Any]]] = None
-    next_agent: Optional[AgentRole] = None
-    state: Optional[AgentState] = None
+    data: BaseModel | dict[str, Any] = field(default_factory=dict)
+    visualization: BaseModel | dict[str, Any] | None = None
+    next_agent: AgentRole | None = None
+    state: AgentState | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert response to dictionary, handling Pydantic models."""
         return {
             "success": self.success,
@@ -160,10 +162,10 @@ class BaseAgent(ABC):
 
     def __init__(
         self,
-        llm_provider: Optional[str] = None,
-        llm_model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        llm_provider: str | None = None,
+        llm_model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         """Initialize the base agent.
 
@@ -208,6 +210,7 @@ class BaseAgent(ABC):
         """Get the LLM instance for this agent."""
         if self._llm is None:
             from app.services.llm_service import get_llm_service
+
             llm_service = get_llm_service(
                 provider=self.llm_provider,
                 model=self.llm_model,
@@ -233,7 +236,7 @@ class BaseAgent(ABC):
             self._graph = self._build_graph()
         return self._graph
 
-    async def execute(self, state: Union[AgentState, Dict[str, Any]]) -> AgentResponse:
+    async def execute(self, state: AgentState | dict[str, Any]) -> AgentResponse:
         """Execute the agent's LangGraph workflow.
 
         Args:
@@ -266,7 +269,9 @@ class BaseAgent(ABC):
                 state.add_error(f"{self.name} error: {str(e)}")
                 error_state = state
             else:
-                error_state = AgentState.from_graph_state(state) if isinstance(state, dict) else AgentState()
+                error_state = (
+                    AgentState.from_graph_state(state) if isinstance(state, dict) else AgentState()
+                )
                 error_state.add_error(f"{self.name} error: {str(e)}")
 
             return AgentResponse(
@@ -290,7 +295,7 @@ class BaseAgent(ABC):
 
     async def _invoke_llm(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
         include_system_prompt: bool = True,
         enable_fallback: bool = True,
     ) -> str:

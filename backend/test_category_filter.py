@@ -4,12 +4,11 @@ Test script to verify category filtering in RAG search.
 Tests the three verification cases from the plan.
 """
 
-import asyncio
-import sys
 import os
+import sys
 
 # Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 from app.services.agents.extraction.agent import DataExtractionAgent
 
@@ -24,69 +23,58 @@ def test_category_extraction():
         {
             "query": "What is the employment rate in Singapore?",
             "expected": "employment",
-            "description": "Employment keyword"
+            "description": "Employment keyword",
         },
         {
             "query": "What is the employment trend in Singapore in the technology industry from 2020-2024?",
             "expected": "employment",
-            "description": "Employment trend query"
+            "description": "Employment trend query",
         },
         {
             "query": "Show me unemployment statistics",
             "expected": "employment",
-            "description": "Unemployment keyword"
+            "description": "Unemployment keyword",
         },
         {
             "query": "What is the labour force participation?",
             "expected": "employment",
-            "description": "Labour force keyword"
+            "description": "Labour force keyword",
         },
-
         # Test Case 2: Income Query
         {
             "query": "Show me salary trends in 2020",
             "expected": "income",
-            "description": "Salary keyword"
+            "description": "Salary keyword",
         },
         {
             "query": "What is the average income in Singapore?",
             "expected": "income",
-            "description": "Income keyword"
+            "description": "Income keyword",
         },
-        {
-            "query": "Tell me about wage growth",
-            "expected": "income",
-            "description": "Wage keyword"
-        },
-
+        {"query": "Tell me about wage growth", "expected": "income", "description": "Wage keyword"},
         # Test Case 3: Hours Worked Query
         {
             "query": "How many hours do people work per week?",
             "expected": "hours_worked",
-            "description": "Hours worked phrase"
+            "description": "Hours worked phrase",
         },
         {
             "query": "Show me working hours statistics",
             "expected": "hours_worked",
-            "description": "Working hours phrase"
+            "description": "Working hours phrase",
         },
         {
             "query": "What is the overtime trend?",
             "expected": "hours_worked",
-            "description": "Overtime keyword"
+            "description": "Overtime keyword",
         },
-
         # Test Case 4: Generic Query (no filter)
         {
             "query": "Show me statistics for 2020",
             "expected": None,
-            "description": "Generic query with no category"
+            "description": "Generic query with no category",
         },
-        {
-            "query": "What data do you have?",
-            "expected": None,
-            "description": "Generic question"
-        },
+        {"query": "What data do you have?", "expected": None, "description": "Generic question"},
     ]
 
     print("=" * 80)
@@ -111,7 +99,7 @@ def test_category_extraction():
             failed += 1
 
         print(f"Test {i}: {description}")
-        print(f"  Query: \"{query}\"")
+        print(f'  Query: "{query}"')
         print(f"  Expected: {expected}")
         print(f"  Got:      {result}")
         print(f"  Status:   {status}")

@@ -35,11 +35,11 @@ Export formats:
 import argparse
 import json
 import logging
-import sys
 import subprocess
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+import sys
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -69,7 +69,7 @@ class EvaluationRunner:
         """Initialize runner with CLI arguments."""
         self.args = args
         self.exporter = EvaluationExporter()
-        self.results: List[Dict[str, Any]] = []
+        self.results: list[dict[str, Any]] = []
 
     def run(self) -> int:
         """
@@ -193,7 +193,7 @@ class EvaluationRunner:
     def _collect_from_pytest_report(self, report_path: Path) -> None:
         """Collect results from pytest JSON report."""
         try:
-            with open(report_path, "r") as f:
+            with open(report_path) as f:
                 report = json.load(f)
 
             # Extract test results
@@ -217,13 +217,13 @@ class EvaluationRunner:
         """Collect results from custom queries file."""
         try:
             queries_path = Path(self.args.queries_file)
-            with open(queries_path, "r") as f:
+            with open(queries_path) as f:
                 queries = json.load(f)
 
             # Load ground truth if provided
             ground_truth = {}
             if self.args.ground_truth:
-                with open(self.args.ground_truth, "r") as f:
+                with open(self.args.ground_truth) as f:
                     ground_truth = json.load(f)
 
             # For each query, create a result entry
@@ -331,9 +331,7 @@ class EvaluationRunner:
         # Filter by agent if specified
         results_to_export = self.results
         if self.args.agent:
-            results_to_export = [
-                r for r in self.results if r.get("agent") == self.args.agent
-            ]
+            results_to_export = [r for r in self.results if r.get("agent") == self.args.agent]
             logger.info(
                 f"Filtered to {len(results_to_export)} results for agent: {self.args.agent}"
             )
@@ -368,15 +366,11 @@ class EvaluationRunner:
 
         elif export_format == "csv":
             output_path = output_dir / "evaluation_results.csv"
-            self.exporter.export_to_csv(
-                results_to_export, output_path, min_score=min_score
-            )
+            self.exporter.export_to_csv(results_to_export, output_path, min_score=min_score)
 
         elif export_format == "parquet":
             output_path = output_dir / "evaluation_results.parquet"
-            self.exporter.export_to_parquet(
-                results_to_export, output_path, min_score=min_score
-            )
+            self.exporter.export_to_parquet(results_to_export, output_path, min_score=min_score)
 
         else:
             logger.error(f"Unknown export format: {export_format}")
@@ -388,9 +382,7 @@ class EvaluationRunner:
         """Generate summary report."""
         output_path = Path(self.args.output_dir) / "summary_report.json"
 
-        summary = self.exporter.generate_summary_report(
-            self.results, output_path=output_path
-        )
+        summary = self.exporter.generate_summary_report(self.results, output_path=output_path)
 
         # Print summary to console
         logger.info("\n" + "=" * 80)
@@ -414,7 +406,7 @@ class EvaluationRunner:
             if "avg_latency_ms" in data:
                 logger.info(f"    Avg Latency: {data['avg_latency_ms']:.0f}ms")
 
-    def _extract_agent_from_test(self, test: Dict[str, Any]) -> str:
+    def _extract_agent_from_test(self, test: dict[str, Any]) -> str:
         """Extract agent name from test nodeid."""
         nodeid = test.get("nodeid", "")
 
@@ -462,9 +454,7 @@ Export formats: jsonl, openai, anthropic, csv, parquet
         choices=["unit", "integration", "evaluation", "performance", "full"],
         help="Test suite to run (default: evaluation)",
     )
-    test_group.add_argument(
-        "--test-path", type=str, help="Specific test file or directory to run"
-    )
+    test_group.add_argument("--test-path", type=str, help="Specific test file or directory to run")
     test_group.add_argument(
         "--agent",
         type=str,
@@ -474,12 +464,8 @@ Export formats: jsonl, openai, anthropic, csv, parquet
     test_group.add_argument(
         "--skip-tests", action="store_true", help="Skip running tests (use existing results)"
     )
-    test_group.add_argument(
-        "--parallel", action="store_true", help="Run tests in parallel"
-    )
-    test_group.add_argument(
-        "--maxfail", type=int, help="Stop after N test failures"
-    )
+    test_group.add_argument("--parallel", action="store_true", help="Run tests in parallel")
+    test_group.add_argument("--maxfail", type=int, help="Stop after N test failures")
 
     # Export options
     export_group = parser.add_argument_group("Export Options")
@@ -511,12 +497,8 @@ Export formats: jsonl, openai, anthropic, csv, parquet
 
     # Data source options
     data_group = parser.add_argument_group("Data Sources")
-    data_group.add_argument(
-        "--queries-file", type=str, help="Custom queries JSON file"
-    )
-    data_group.add_argument(
-        "--ground-truth", type=str, help="Ground truth answers JSON file"
-    )
+    data_group.add_argument("--queries-file", type=str, help="Custom queries JSON file")
+    data_group.add_argument("--ground-truth", type=str, help="Ground truth answers JSON file")
     data_group.add_argument(
         "--generate-mock",
         action="store_true",
@@ -524,9 +506,7 @@ Export formats: jsonl, openai, anthropic, csv, parquet
     )
 
     # Other options
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Verbose output"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
     return parser.parse_args()
 

@@ -1,10 +1,10 @@
 """Data Coordinator Agent - Plans research workflows using LangGraph."""
 
 import json
-from typing import Any, Dict, List
+from typing import Any
 
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import END, StateGraph
 
 from app.models import (
     CoordinatorResult,
@@ -12,9 +12,10 @@ from app.models import (
     WorkflowPlan,
     WorkflowStep,
 )
+
 from ..base_agent import (
-    AgentRole,
     AgentResponse,
+    AgentRole,
     AgentState,
     BaseAgent,
     GraphState,
@@ -73,7 +74,7 @@ class DataCoordinatorAgent(BaseAgent):
 
         return workflow.compile()
 
-    async def _analyze_query_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _analyze_query_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Analyze the user's query to understand intent."""
         messages = state.get("messages", [])
 
@@ -111,7 +112,7 @@ Respond in JSON format:
         try:
             response = await self._invoke_llm([HumanMessage(content=analysis_prompt)])
             analysis = self._parse_json_response(response)
-        except Exception as e:
+        except Exception:
             analysis = {
                 "intent": user_message,
                 "data_type": "general",
@@ -130,7 +131,7 @@ Respond in JSON format:
             },
         }
 
-    async def _identify_data_sources_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _identify_data_sources_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Identify required data sources based on query analysis."""
         analysis = state.get("intermediate_results", {}).get("query_analysis", {})
         current_task = state.get("current_task", "")
@@ -141,11 +142,11 @@ Respond in JSON format:
         if not datasets_info:
             # Fallback to filesystem-based listing
             from app.services.data_service import data_service
+
             available_datasets = data_service.get_available_datasets()
-            datasets_info = "\n".join([
-                f"- {ds['name']} ({ds['path']})"
-                for ds in available_datasets[:15]
-            ])
+            datasets_info = "\n".join(
+                [f"- {ds['name']} ({ds['path']})" for ds in available_datasets[:15]]
+            )
 
         source_prompt = f"""Based on this query analysis, identify which data sources are needed.
 
@@ -182,7 +183,7 @@ Respond in JSON format:
             },
         }
 
-    async def _create_plan_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _create_plan_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Create execution workflow plan."""
         analysis = state.get("intermediate_results", {}).get("query_analysis", {})
         sources = state.get("intermediate_results", {}).get("data_sources", {})
@@ -256,7 +257,7 @@ Create a step-by-step plan. Respond in JSON format:
             },
         }
 
-    async def _determine_delegation_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _determine_delegation_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Determine which agent should handle the task next."""
         workflow_plan = state.get("workflow_plan", [])
         full_plan = state.get("intermediate_results", {}).get("full_plan", {})
@@ -285,12 +286,14 @@ Create a step-by-step plan. Respond in JSON format:
         """Get dataset descriptions from PostgreSQL if available."""
         try:
             from app.db.session import async_session_factory
+
             if async_session_factory is None:
                 return ""
 
             from sqlalchemy import select
-            from app.db.session import get_db
+
             from app.db.models import DatasetMetadata
+            from app.db.session import get_db
 
             async with get_db() as session:
                 result = await session.execute(
@@ -317,7 +320,7 @@ Create a step-by-step plan. Respond in JSON format:
         except Exception:
             return ""
 
-    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+    def _parse_json_response(self, response: str) -> dict[str, Any]:
         """Parse JSON from LLM response."""
         try:
             # Try to find JSON block
@@ -363,9 +366,7 @@ Create a step-by-step plan. Respond in JSON format:
             )
 
         workflow_plan = WorkflowPlan(
-            query_understanding=full_plan_dict.get(
-                "query_understanding", state.current_task
-            ),
+            query_understanding=full_plan_dict.get("query_understanding", state.current_task),
             steps=workflow_steps,
             final_output=full_plan_dict.get("final_output", "Analysis response"),
             visualization_suggested=full_plan_dict.get("visualization_suggested", False),

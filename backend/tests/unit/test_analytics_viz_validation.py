@@ -1,10 +1,8 @@
 """Unit tests for AnalyticsAgent visualization semantic validation."""
 
-import pytest
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
+import pandas as pd
+import pytest
 
 from app.services.agents.analytics.agent import AnalyticsAgent
 
@@ -19,11 +17,13 @@ def analytics_agent():
 def sample_dataframes():
     """Create sample dataframes for testing."""
     return {
-        "employment_data": pd.DataFrame({
-            "year": [2020, 2021, 2022, 2023],
-            "employment_rate": [65.5, 66.2, 67.1, 68.0],
-            "employment_count": [2500, 2600, 2700, 2800]
-        })
+        "employment_data": pd.DataFrame(
+            {
+                "year": [2020, 2021, 2022, 2023],
+                "employment_rate": [65.5, 66.2, 67.1, 68.0],
+                "employment_count": [2500, 2600, 2700, 2800],
+            }
+        )
     }
 
 
@@ -35,7 +35,7 @@ def sample_data_summary():
             "row_count": 4,
             "columns": ["year", "employment_rate", "employment_count"],
             "numeric_columns": ["year", "employment_rate", "employment_count"],
-            "metadata": {}
+            "metadata": {},
         }
     }
 
@@ -43,7 +43,9 @@ def sample_data_summary():
 class TestVisualizationSemanticValidation:
     """Test suite for visualization semantic validation."""
 
-    def test_valid_percentage_chart_0_to_100(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_valid_percentage_chart_0_to_100(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test validation passes for correctly formatted percentage chart (0-100 range)."""
         fig, ax = plt.subplots()
         ax.plot([2020, 2021, 2022, 2023], [65.5, 66.2, 67.1, 68.0])
@@ -52,9 +54,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(60, 70)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -62,7 +62,9 @@ class TestVisualizationSemanticValidation:
         assert result["valid"] is True
         assert result["feedback"] is None
 
-    def test_invalid_percentage_chart_exceeds_100(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_invalid_percentage_chart_exceeds_100(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test validation fails when percentage values exceed 100."""
         fig, ax = plt.subplots()
         # Plot raw counts (2500-2800) but label as percentage
@@ -72,18 +74,20 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(2000, 3000)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
 
         assert result["valid"] is False
         assert "percentage" in result["feedback"].lower() or "rate" in result["feedback"].lower()
-        assert "2500" in result["feedback"] or "2800" in result["feedback"]  # Should mention the actual values
+        assert (
+            "2500" in result["feedback"] or "2800" in result["feedback"]
+        )  # Should mention the actual values
 
-    def test_invalid_percentage_chart_scaled_incorrectly(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_invalid_percentage_chart_scaled_incorrectly(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test validation fails when percentage is scaled 0-300 instead of 0-100."""
         fig, ax = plt.subplots()
         # Values 0-200 labeled as percentage
@@ -93,9 +97,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0, 200)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -112,9 +114,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0.6, 0.7)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -122,7 +122,9 @@ class TestVisualizationSemanticValidation:
         assert result["valid"] is True
         # May have warning about missing % symbol or suggesting ratio label
 
-    def test_warning_ratio_mislabeled_as_percentage(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_warning_ratio_mislabeled_as_percentage(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test warning when 0-1 ratio is labeled as percentage."""
         fig, ax = plt.subplots()
         ax.plot([2020, 2021, 2022, 2023], [0.655, 0.662, 0.671, 0.680])
@@ -131,9 +133,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0.6, 0.7)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -152,9 +152,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0, 3000)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -173,9 +171,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(2019, 2024)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -185,7 +181,9 @@ class TestVisualizationSemanticValidation:
         assert "year" in result["feedback"].lower()
         assert "x-axis" in result["feedback"].lower() or "swap" in result["feedback"].lower()
 
-    def test_warning_negative_values_for_rate(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_warning_negative_values_for_rate(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test warning when rate/percentage has negative values."""
         fig, ax = plt.subplots()
         ax.plot([2020, 2021, 2022, 2023], [65.5, -10.2, 67.1, 68.0])  # Negative value
@@ -194,9 +192,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(-20, 80)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -206,7 +202,9 @@ class TestVisualizationSemanticValidation:
         assert len(result["warnings"]) > 0
         assert any("negative" in w.lower() for w in result["warnings"])
 
-    def test_warning_very_large_values(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_warning_very_large_values(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test warning for very large values that should be scaled."""
         fig, ax = plt.subplots()
         ax.bar([2020, 2021, 2022, 2023], [250000, 260000, 270000, 280000])
@@ -215,9 +213,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0, 300000)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -226,7 +222,9 @@ class TestVisualizationSemanticValidation:
         assert len(result["warnings"]) > 0
         assert any("thousands" in w.lower() or "millions" in w.lower() for w in result["warnings"])
 
-    def test_valid_chart_with_proper_units(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_valid_chart_with_proper_units(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test validation passes for well-formatted chart with proper units."""
         fig, ax = plt.subplots()
         ax.bar([2020, 2021, 2022, 2023], [2500, 2600, 2700, 2800])
@@ -235,9 +233,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0, 3000)
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -252,9 +248,7 @@ class TestVisualizationSemanticValidation:
         # No axes added
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -266,9 +260,7 @@ class TestVisualizationSemanticValidation:
     def test_non_figure_input(self, analytics_agent, sample_dataframes, sample_data_summary):
         """Test validation handles non-Figure input gracefully."""
         result = analytics_agent._validate_visualization_semantics(
-            fig="not a figure",
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig="not a figure", dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         assert result["valid"] is True
@@ -282,9 +274,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylabel("Employment Rate (%)")
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -299,16 +289,16 @@ class TestVisualizationSemanticValidation:
         ax.set_ylabel("Employment Rate (%)")
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
 
         assert result["valid"] is True
 
-    def test_outlier_detection_data_cleaning_issue(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_outlier_detection_data_cleaning_issue(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test validation detects outlier bar (data cleaning issue like '63.7' becoming '637')."""
         fig, ax = plt.subplots()
         # Most values are 60-68, but one value is 637 (10x higher - likely "63.7" with trailing char)
@@ -320,9 +310,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0, 700)  # Y-axis goes way beyond 100
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)
@@ -331,7 +319,9 @@ class TestVisualizationSemanticValidation:
         assert result["valid"] is False
         assert "outlier" in result["feedback"].lower() or "637" in result["feedback"]
 
-    def test_axis_limit_exceeds_100_for_percentage(self, analytics_agent, sample_dataframes, sample_data_summary):
+    def test_axis_limit_exceeds_100_for_percentage(
+        self, analytics_agent, sample_dataframes, sample_data_summary
+    ):
         """Test validation catches y-axis limits 0-300 even if data values are correct."""
         fig, ax = plt.subplots()
         # Data values are correct (60-70), but axis is set to 0-300
@@ -341,9 +331,7 @@ class TestVisualizationSemanticValidation:
         ax.set_ylim(0, 300)  # Wrong axis limits!
 
         result = analytics_agent._validate_visualization_semantics(
-            fig=fig,
-            dataframes=sample_dataframes,
-            data_summary=sample_data_summary
+            fig=fig, dataframes=sample_dataframes, data_summary=sample_data_summary
         )
 
         plt.close(fig)

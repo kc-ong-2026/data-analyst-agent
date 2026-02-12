@@ -537,6 +537,44 @@ open htmlcov/index.html
 - **Fixtures**: Use pytest fixtures for common setup
 - **Markers**: Tests are marked with `@pytest.mark.requires_llm` if they need real LLM calls
 
+### Code Quality & Linting
+
+**Backend** (Python - Ruff + Black):
+```bash
+cd backend
+
+# Install linting tools
+pip install -r requirements-dev.txt
+
+# Run Ruff linter
+ruff check .
+
+# Auto-fix issues
+ruff check . --fix
+
+# Format code with Black
+black .
+
+# Check formatting without changes
+black --check .
+```
+
+**Frontend** (TypeScript - ESLint):
+```bash
+cd frontend
+
+# Run ESLint
+npm run lint
+
+# Auto-fix issues
+npm run lint -- --fix
+
+# Type check
+npx tsc --noEmit
+```
+
+**CI/CD**: All linting checks run automatically in GitHub Actions on every push.
+
 ---
 
 ## 💬 Sample Queries

@@ -11,10 +11,10 @@ Tests compare hybrid search (vector + BM25 + reranking) against
 vector-only baseline and validate confidence threshold effectiveness.
 """
 
-import pytest
-import numpy as np
-from typing import List, Dict, Any
 from collections import defaultdict
+
+import numpy as np
+import pytest
 
 from tests.utils.test_helpers import PerformanceTimer
 
@@ -34,8 +34,9 @@ class TestContextPrecision:
         sample_datasets,
     ):
         """Test context precision @ 1 on sample queries."""
-        from app.services.rag_service import RAGService
         import asyncio
+
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -53,8 +54,7 @@ class TestContextPrecision:
             return [schema.description for schema in result.table_schemas]
 
         all_results = await asyncio.gather(
-            *[retrieve_contexts(q) for q in queries],
-            return_exceptions=True
+            *[retrieve_contexts(q) for q in queries], return_exceptions=True
         )
 
         # Filter out exceptions
@@ -78,9 +78,9 @@ class TestContextPrecision:
         if ragas_result.context_precision:
             print(f"Context Precision @ 1: {ragas_result.context_precision:.4f}")
             # Threshold adjusted for real data (1 relevant dataset in top k)
-            assert ragas_result.context_precision >= 0.05, (
-                f"Context Precision {ragas_result.context_precision:.4f} below threshold"
-            )
+            assert (
+                ragas_result.context_precision >= 0.05
+            ), f"Context Precision {ragas_result.context_precision:.4f} below threshold"
 
     @pytest.mark.asyncio
     async def test_precision_at_k(
@@ -145,9 +145,7 @@ class TestContextPrecision:
 
         # Filter employment queries
         retrieval_tests = sample_queries.get("retrieval_tests", [])
-        employment_queries = [
-            t for t in retrieval_tests if t.get("category") == "employment"
-        ]
+        employment_queries = [t for t in retrieval_tests if t.get("category") == "employment"]
 
         if not employment_queries:
             pytest.skip("No employment queries")
@@ -221,9 +219,9 @@ class TestContextRecall:
         if ragas_result.context_recall:
             print(f"Context Recall: {ragas_result.context_recall:.4f}")
             # Threshold adjusted for real data
-            assert ragas_result.context_recall >= 0.40, (
-                f"Context Recall {ragas_result.context_recall:.4f} below threshold"
-            )
+            assert (
+                ragas_result.context_recall >= 0.40
+            ), f"Context Recall {ragas_result.context_recall:.4f} below threshold"
 
 
 @pytest.mark.evaluation
@@ -287,8 +285,9 @@ class TestHybridVsVectorOnly:
         sample_queries,
     ):
         """Test that hybrid search (with reranking) performs well."""
-        from app.services.rag_service import RAGService
         import asyncio
+
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -309,8 +308,7 @@ class TestHybridVsVectorOnly:
 
         # OPTIMIZATION: Parallel processing
         hybrid_precisions = await asyncio.gather(
-            *[evaluate_hybrid(test) for test in retrieval_tests],
-            return_exceptions=True
+            *[evaluate_hybrid(test) for test in retrieval_tests], return_exceptions=True
         )
 
         # Filter out exceptions
@@ -341,8 +339,9 @@ class TestReranking:
         sample_queries,
     ):
         """Test that reranking improves or maintains precision."""
-        from app.services.rag_service import RAGService
         import asyncio
+
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -358,7 +357,9 @@ class TestReranking:
 
             # Without reranking
             result_no_rerank = await rag_service.retrieve(query, top_k=5, use_reranking=False)
-            retrieved_no_rerank = {schema.table_name for schema in result_no_rerank.table_schemas[:3]}
+            retrieved_no_rerank = {
+                schema.table_name for schema in result_no_rerank.table_schemas[:3]
+            }
             precision_no_rerank = len(retrieved_no_rerank & expected) / 3 if expected else 0
 
             # With reranking
@@ -370,8 +371,7 @@ class TestReranking:
 
         # OPTIMIZATION: Parallel processing
         results = await asyncio.gather(
-            *[compare_reranking(test) for test in retrieval_tests],
-            return_exceptions=True
+            *[compare_reranking(test) for test in retrieval_tests], return_exceptions=True
         )
 
         # Filter out exceptions
@@ -421,7 +421,9 @@ class TestConfidenceThreshold:
 
         # Check that scores are assigned
         scores = [schema.score for schema in result.table_schemas]
-        print(f"Score range: {min(scores) if scores else 0:.4f} - {max(scores) if scores else 0:.4f}")
+        print(
+            f"Score range: {min(scores) if scores else 0:.4f} - {max(scores) if scores else 0:.4f}"
+        )
 
         # Scores should be in descending order (best first)
         for i in range(len(scores) - 1):

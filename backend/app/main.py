@@ -3,14 +3,15 @@
 import asyncio
 import logging
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import config
-from app.routes import chat, config as config_routes, data
+from app.routes import chat, data
+from app.routes import config as config_routes
 
 # Configure logging
 logging.basicConfig(
@@ -32,6 +33,7 @@ async def _check_and_ingest() -> None:
     """Check if datasets are ingested; if not, run ingestion."""
     try:
         from app.db.session import async_session_factory, get_db
+
         if async_session_factory is None:
             logger.info("Database not configured, skipping ingestion")
             return
@@ -41,11 +43,15 @@ async def _check_and_ingest() -> None:
         async with get_db() as session:
             # Check if employment metadata table exists and has data
             try:
-                result = await session.execute(text("SELECT count(*) FROM employment_dataset_metadata"))
+                result = await session.execute(
+                    text("SELECT count(*) FROM employment_dataset_metadata")
+                )
                 count = result.scalar()
 
                 if count and count > 0:
-                    logger.info(f"Database already has {count} employment datasets, skipping ingestion")
+                    logger.info(
+                        f"Database already has {count} employment datasets, skipping ingestion"
+                    )
                     return
             except Exception:
                 # Table doesn't exist yet, proceed with ingestion
@@ -54,7 +60,6 @@ async def _check_and_ingest() -> None:
         logger.info("No datasets found in database, starting ingestion...")
 
         from app.services.ingestion.data_processor import DataProcessor
-        from app.services.ingestion.embedding_generator import EmbeddingGenerator
 
         async with get_db() as session:
             processor = DataProcessor()
@@ -85,6 +90,7 @@ async def _warmup_models():
         # 1. Pre-load embedding model (warmup query)
         try:
             from app.services.llm_service import get_embedding_service
+
             embedding_service = get_embedding_service()
             await embedding_service.embed_query("warmup query to initialize model")
             logger.info("✓ Embedding model loaded and ready")
@@ -94,6 +100,7 @@ async def _warmup_models():
         # 2. Pre-load reranker model
         try:
             from app.services.reranker import get_reranker
+
             reranker = get_reranker()
             # Warmup with dummy query
             reranker.rerank("warmup", ["document 1", "document 2"], 2)
@@ -104,6 +111,7 @@ async def _warmup_models():
         # 3. Load BM25 indexes from disk
         try:
             from app.services.rag_service import RAGService
+
             rag_service = RAGService()
             await rag_service.warmup_caches()
             logger.info("✓ BM25 indexes loaded from disk")
@@ -134,7 +142,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     print("Starting Govtech Chat Assistant...")
 
     # Initialize database
-    from app.db.session import init_db, close_db
+    from app.db.session import close_db, init_db
+
     init_db()
 
     # Auto-ingest if database is empty
@@ -146,12 +155,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Log LangSmith tracing status
     langsmith_config = config.get_langsmith_config()
     if langsmith_config["enabled"] and langsmith_config["api_key_configured"]:
-        logger.info(
-            f"LangSmith tracing ENABLED - Project: {langsmith_config['project_name']}"
-        )
-        logger.info(
-            "View traces at: https://smith.langchain.com"
-        )
+        logger.info(f"LangSmith tracing ENABLED - Project: {langsmith_config['project_name']}")
+        logger.info("View traces at: https://smith.langchain.com")
     else:
         logger.info("LangSmith tracing DISABLED")
         if not langsmith_config["api_key_configured"]:

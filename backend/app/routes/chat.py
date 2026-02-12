@@ -4,15 +4,15 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import AsyncGenerator, Dict, List
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.models import (
+    ChatMessage,
     ChatRequest,
     ChatResponse,
-    ChatMessage,
     VisualizationData,
 )
 from app.services.agents.orchestrator import get_orchestrator
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # In-memory conversation storage (use Redis/DB in production)
-conversations: Dict[str, List[ChatMessage]] = {}
+conversations: dict[str, list[ChatMessage]] = {}
 
 
 @router.post("/stream")
@@ -56,21 +56,35 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                         if msg.role == "assistant" and last_assistant_msg is None:
                             last_assistant_msg = msg.content.lower()
                         elif msg.role == "user":
-                            all_user_messages.insert(0, msg.content)  # Insert at start to maintain order
+                            all_user_messages.insert(
+                                0, msg.content
+                            )  # Insert at start to maintain order
 
                     # Check if assistant was asking for clarification
                     if last_assistant_msg and all_user_messages:
                         clarification_keywords = [
-                            "which year", "specify year", "year range", "what year",
-                            "available data", "please specify", "interested in", "provide",
-                            "dimension", "age group", "sex/gender", "industry", "qualification"
+                            "which year",
+                            "specify year",
+                            "year range",
+                            "what year",
+                            "available data",
+                            "please specify",
+                            "interested in",
+                            "provide",
+                            "dimension",
+                            "age group",
+                            "sex/gender",
+                            "industry",
+                            "qualification",
                         ]
-                        is_asking_for_clarification = any(kw in last_assistant_msg for kw in clarification_keywords)
+                        is_asking_for_clarification = any(
+                            kw in last_assistant_msg for kw in clarification_keywords
+                        )
 
                         if is_asking_for_clarification:
                             # Combine ALL previous user messages with current one for full context!
                             combined_message = " ".join(all_user_messages + [request.message])
-                            logger.info(f"🔗 [SSE] Context Append Detected!")
+                            logger.info("🔗 [SSE] Context Append Detected!")
                             logger.info(f"   Previous messages: {all_user_messages}")
                             logger.info(f"   Current response: '{request.message}'")
                             logger.info(f"   Combined query: '{combined_message}'")
@@ -117,12 +131,16 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 # Store conversation
                 if conversation_id not in conversations:
                     conversations[conversation_id] = []
-                conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
-                conversations[conversation_id].append(ChatMessage(role="assistant", content=full_message))
+                conversations[conversation_id].append(
+                    ChatMessage(role="user", content=request.message)
+                )
+                conversations[conversation_id].append(
+                    ChatMessage(role="assistant", content=full_message)
+                )
 
                 # Clear conversation after successful query (keep only for validation failures)
                 if not (validation and not validation.get("valid", True)):
-                    logger.info(f"🧹 [SSE] Clearing conversation context after successful query")
+                    logger.info("🧹 [SSE] Clearing conversation context after successful query")
                     del conversations[conversation_id]
 
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -139,14 +157,18 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 elif "timeout" in str(e).lower():
                     user_error = "The query took too long to process. Please try a more specific query with fewer years or dimensions."
                 else:
-                    user_error = f"I encountered an error while processing your request. Please try rephrasing your query or contact support if the issue persists."
+                    user_error = "I encountered an error while processing your request. Please try rephrasing your query or contact support if the issue persists."
 
                 yield f"data: {json.dumps({'type': 'error', 'error': user_error, 'technical_details': str(e)})}\n\n"
 
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     except Exception as e:
@@ -188,16 +210,28 @@ async def chat(request: ChatRequest) -> ChatResponse:
             # Check if assistant was asking for clarification
             if last_assistant_msg and all_user_messages:
                 clarification_keywords = [
-                    "which year", "specify year", "year range", "what year",
-                    "available data", "please specify", "interested in", "provide",
-                    "dimension", "age group", "sex/gender", "industry", "qualification"
+                    "which year",
+                    "specify year",
+                    "year range",
+                    "what year",
+                    "available data",
+                    "please specify",
+                    "interested in",
+                    "provide",
+                    "dimension",
+                    "age group",
+                    "sex/gender",
+                    "industry",
+                    "qualification",
                 ]
-                is_asking_for_clarification = any(kw in last_assistant_msg for kw in clarification_keywords)
+                is_asking_for_clarification = any(
+                    kw in last_assistant_msg for kw in clarification_keywords
+                )
 
                 if is_asking_for_clarification:
                     # Combine ALL previous user messages with current one for full context!
                     combined_message = " ".join(all_user_messages + [request.message])
-                    logger.info(f"🔗 Context Append Detected!")
+                    logger.info("🔗 Context Append Detected!")
                     logger.info(f"   Previous messages: {all_user_messages}")
                     logger.info(f"   Current response: '{request.message}'")
                     logger.info(f"   Combined query: '{combined_message}'")
@@ -216,7 +250,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
             message=combined_message,  # Use combined message!
             chat_history=chat_history,  # Always empty - independent queries
         )
-        logger.info(f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}")
+        logger.info(
+            f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}"
+        )
 
         # Check if verification failed (topic invalid)
         validation = result.get("query_validation", {})
@@ -226,13 +262,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
             if conversation_id not in conversations:
                 conversations[conversation_id] = []
 
+            conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
             conversations[conversation_id].append(
-                ChatMessage(role="user", content=request.message)
+                ChatMessage(
+                    role="assistant", content=validation.get("reason", "Query validation failed")
+                )
             )
-            conversations[conversation_id].append(
-                ChatMessage(role="assistant", content=validation.get("reason", "Query validation failed"))
-            )
-            logger.info(f"💬 Keeping conversation history for clarification follow-up")
+            logger.info("💬 Keeping conversation history for clarification follow-up")
 
             # Return validation error
             return ChatResponse(
@@ -244,7 +280,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     "validation_failed": True,
                     "validation_details": validation,
                     "agents_used": result.get("metadata", {}).get("agents_used", []),
-                }
+                },
             )
 
         # Store conversation for successful query
@@ -259,7 +295,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
 
         # Clear conversation after successful query (so next query is independent)
-        logger.info(f"🧹 Clearing conversation context after successful query")
+        logger.info("🧹 Clearing conversation context after successful query")
         del conversations[conversation_id]
 
         if result.get("error") and not result.get("message"):
@@ -311,7 +347,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @router.get("/agents")
-async def list_agents() -> Dict:
+async def list_agents() -> dict:
     """List all available agents."""
     orchestrator = get_orchestrator()
     return {
@@ -325,7 +361,7 @@ async def list_agents() -> Dict:
 
 
 @router.get("/history/{conversation_id}")
-async def get_conversation_history(conversation_id: str) -> Dict:
+async def get_conversation_history(conversation_id: str) -> dict:
     """Get conversation history."""
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -340,7 +376,7 @@ async def get_conversation_history(conversation_id: str) -> Dict:
 
 
 @router.delete("/history/{conversation_id}")
-async def clear_conversation(conversation_id: str) -> Dict:
+async def clear_conversation(conversation_id: str) -> dict:
     """Clear conversation history."""
     if conversation_id in conversations:
         del conversations[conversation_id]
@@ -348,7 +384,7 @@ async def clear_conversation(conversation_id: str) -> Dict:
 
 
 @router.get("/conversations")
-async def list_conversations() -> Dict:
+async def list_conversations() -> dict:
     """List all conversation IDs."""
     return {
         "conversations": list(conversations.keys()),

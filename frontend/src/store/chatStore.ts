@@ -55,7 +55,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (useStreaming) {
         // Use SSE streaming for real-time response
         const assistantMessageId = `msg-${Date.now()}-assistant`;
-        let assistantMessage: Message | null = null;
 
         await chatApi.streamMessage(
           {
@@ -81,7 +80,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
                 // Update or create assistant message
                 const existingMsgIndex = state.messages.findIndex(m => m.id === assistantMessageId);
-                let newMessages = [...state.messages];
+                const newMessages = [...state.messages];
 
                 if (existingMsgIndex >= 0) {
                   // Update existing message
@@ -98,7 +97,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     timestamp: new Date(),
                   };
                   newMessages.push(newMsg);
-                  assistantMessage = newMsg;
                 }
 
                 return {
@@ -128,7 +126,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               });
             },
 
-            onComplete: (fullMessage) => {
+            onComplete: () => {
               console.log('[Stream] Complete');
               set({
                 isLoading: false,

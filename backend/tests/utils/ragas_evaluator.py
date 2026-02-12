@@ -11,17 +11,17 @@ for measuring retrieval and generation quality metrics:
 """
 
 import logging
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import (
+    answer_correctness,
+    answer_relevancy,
     context_precision,
     context_recall,
     faithfulness,
-    answer_relevancy,
-    answer_correctness,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,25 +31,27 @@ logger = logging.getLogger(__name__)
 class RagasResult:
     """Results from Ragas evaluation."""
 
-    context_precision: Optional[float] = None
-    context_recall: Optional[float] = None
-    faithfulness: Optional[float] = None
-    answer_relevancy: Optional[float] = None
-    answer_correctness: Optional[float] = None
+    context_precision: float | None = None
+    context_recall: float | None = None
+    faithfulness: float | None = None
+    answer_relevancy: float | None = None
+    answer_correctness: float | None = None
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary, excluding None values."""
         return {
-            k: v for k, v in {
+            k: v
+            for k, v in {
                 "context_precision": self.context_precision,
                 "context_recall": self.context_recall,
                 "faithfulness": self.faithfulness,
                 "answer_relevancy": self.answer_relevancy,
                 "answer_correctness": self.answer_correctness,
-            }.items() if v is not None
+            }.items()
+            if v is not None
         }
 
-    def meets_thresholds(self, thresholds: Dict[str, float]) -> bool:
+    def meets_thresholds(self, thresholds: dict[str, float]) -> bool:
         """Check if all metrics meet their thresholds."""
         for metric, threshold in thresholds.items():
             value = getattr(self, metric, None)
@@ -66,7 +68,7 @@ class RagasEvaluator:
     multiple metrics for both retrieval and generation.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize Ragas evaluator.
 
@@ -83,7 +85,7 @@ class RagasEvaluator:
 
         logger.info(f"Initialized RagasEvaluator with metrics: {list(self.metrics.keys())}")
 
-    def _get_metrics(self, metric_names: List[str]) -> Dict[str, Any]:
+    def _get_metrics(self, metric_names: list[str]) -> dict[str, Any]:
         """Map metric names to Ragas metric objects."""
         available_metrics = {
             "context_precision": context_precision,
@@ -93,18 +95,14 @@ class RagasEvaluator:
             "answer_correctness": answer_correctness,
         }
 
-        return {
-            name: available_metrics[name]
-            for name in metric_names
-            if name in available_metrics
-        }
+        return {name: available_metrics[name] for name in metric_names if name in available_metrics}
 
     def evaluate_retrieval(
         self,
-        queries: List[str],
-        retrieved_contexts: List[List[str]],
-        ground_truth_contexts: Optional[List[List[str]]] = None,
-        reference_answers: Optional[List[str]] = None,
+        queries: list[str],
+        retrieved_contexts: list[list[str]],
+        ground_truth_contexts: list[list[str]] | None = None,
+        reference_answers: list[str] | None = None,
     ) -> RagasResult:
         """
         Evaluate retrieval quality using context precision and recall.
@@ -130,9 +128,7 @@ class RagasEvaluator:
 
         # Add ground truth if provided (for context_recall)
         if ground_truth_contexts:
-            data["ground_truth"] = [
-                " ".join(contexts) for contexts in ground_truth_contexts
-            ]
+            data["ground_truth"] = [" ".join(contexts) for contexts in ground_truth_contexts]
 
         # Add reference answers if provided (for context_precision in Ragas 0.3+)
         # If not provided, generate placeholder references from contexts
@@ -140,9 +136,7 @@ class RagasEvaluator:
             data["reference"] = reference_answers
         elif ground_truth_contexts:
             # Use ground truth contexts as dummy references
-            data["reference"] = [
-                " ".join(contexts) for contexts in ground_truth_contexts
-            ]
+            data["reference"] = [" ".join(contexts) for contexts in ground_truth_contexts]
         else:
             # Generate placeholder references from retrieved contexts
             # (allows context_precision to run even without ground truth)
@@ -196,10 +190,10 @@ class RagasEvaluator:
 
     def evaluate_generation(
         self,
-        queries: List[str],
-        answers: List[str],
-        contexts: List[List[str]],
-        ground_truths: Optional[List[str]] = None,
+        queries: list[str],
+        answers: list[str],
+        contexts: list[list[str]],
+        ground_truths: list[str] | None = None,
     ) -> RagasResult:
         """
         Evaluate generation quality using faithfulness, relevancy, and correctness.
@@ -270,11 +264,11 @@ class RagasEvaluator:
 
     def evaluate_end_to_end(
         self,
-        queries: List[str],
-        answers: List[str],
-        contexts: List[List[str]],
-        ground_truth_contexts: Optional[List[List[str]]] = None,
-        ground_truth_answers: Optional[List[str]] = None,
+        queries: list[str],
+        answers: list[str],
+        contexts: list[list[str]],
+        ground_truth_contexts: list[list[str]] | None = None,
+        ground_truth_answers: list[str] | None = None,
     ) -> RagasResult:
         """
         Evaluate full RAG pipeline with all metrics.
@@ -323,11 +317,19 @@ class RagasEvaluator:
             df = results.to_pandas()
 
             result = RagasResult(
-                context_precision=df["context_precision"].mean() if "context_precision" in df.columns else None,
-                context_recall=df["context_recall"].mean() if "context_recall" in df.columns else None,
+                context_precision=(
+                    df["context_precision"].mean() if "context_precision" in df.columns else None
+                ),
+                context_recall=(
+                    df["context_recall"].mean() if "context_recall" in df.columns else None
+                ),
                 faithfulness=df["faithfulness"].mean() if "faithfulness" in df.columns else None,
-                answer_relevancy=df["answer_relevancy"].mean() if "answer_relevancy" in df.columns else None,
-                answer_correctness=df["answer_correctness"].mean() if "answer_correctness" in df.columns else None,
+                answer_relevancy=(
+                    df["answer_relevancy"].mean() if "answer_relevancy" in df.columns else None
+                ),
+                answer_correctness=(
+                    df["answer_correctness"].mean() if "answer_correctness" in df.columns else None
+                ),
             )
 
             logger.info(f"End-to-end evaluation results: {result.to_dict()}")
@@ -338,9 +340,7 @@ class RagasEvaluator:
                 for metric, threshold in self.thresholds.items():
                     value = getattr(result, metric, None)
                     if value is not None and value < threshold:
-                        logger.warning(
-                            f"  {metric}: {value:.4f} < {threshold:.4f}"
-                        )
+                        logger.warning(f"  {metric}: {value:.4f} < {threshold:.4f}")
 
             return result
 
@@ -348,10 +348,7 @@ class RagasEvaluator:
             logger.error(f"Error during end-to-end evaluation: {e}")
             raise
 
-    def evaluate_batch(
-        self,
-        test_cases: List[Dict[str, Any]]
-    ) -> List[RagasResult]:
+    def evaluate_batch(self, test_cases: list[dict[str, Any]]) -> list[RagasResult]:
         """
         Evaluate a batch of test cases.
 
@@ -373,15 +370,17 @@ class RagasEvaluator:
         answers = [tc["answer"] for tc in test_cases]
         contexts = [tc["contexts"] for tc in test_cases]
 
-        ground_truth_contexts = [
-            tc.get("ground_truth_context", [])
-            for tc in test_cases
-        ] if any("ground_truth_context" in tc for tc in test_cases) else None
+        ground_truth_contexts = (
+            [tc.get("ground_truth_context", []) for tc in test_cases]
+            if any("ground_truth_context" in tc for tc in test_cases)
+            else None
+        )
 
-        ground_truth_answers = [
-            tc.get("ground_truth_answer", "")
-            for tc in test_cases
-        ] if any("ground_truth_answer" in tc for tc in test_cases) else None
+        ground_truth_answers = (
+            [tc.get("ground_truth_answer", "") for tc in test_cases]
+            if any("ground_truth_answer" in tc for tc in test_cases)
+            else None
+        )
 
         # Run end-to-end evaluation
         result = self.evaluate_end_to_end(

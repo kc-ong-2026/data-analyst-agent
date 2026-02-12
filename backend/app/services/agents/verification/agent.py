@@ -1,14 +1,16 @@
 """Query Verification Agent - Validates user queries before processing."""
 
 import re
-from typing import Any, Dict, List, Optional
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import StateGraph, END
+from typing import Any
+
+from langchain_core.messages import AIMessage
+from langgraph.graph import END, StateGraph
 
 from app.models import DimensionCheckResult, QueryValidationResult, YearRange
+
 from ..base_agent import (
-    AgentRole,
     AgentResponse,
+    AgentRole,
     AgentState,
     BaseAgent,
     GraphState,
@@ -27,23 +29,96 @@ class QueryVerificationAgent(BaseAgent):
 
     # Allowed topics (labour removed as per dataset cleanup)
     ALLOWED_TOPICS = [
-        "employment", "employed", "unemployment", "job", "jobs",
-        "income", "salary", "wage", "earnings", "pay",
-        "workforce", "worker", "workers",
-        "hours", "working hours", "work hours", "hours worked"
+        "employment",
+        "employed",
+        "unemployment",
+        "job",
+        "jobs",
+        "income",
+        "salary",
+        "wage",
+        "earnings",
+        "pay",
+        "workforce",
+        "worker",
+        "workers",
+        "hours",
+        "working hours",
+        "work hours",
+        "hours worked",
     ]
 
     # Dimension keywords for employment data
-    AGE_KEYWORDS = ["age", "aged", "years old", "youth", "youths", "senior", "seniors", "elderly", "young", "old", "teenager", "teenagers"]
-    SEX_KEYWORDS = ["male", "males", "female", "females", "men", "women", "sex", "gender", "man", "woman"]
+    AGE_KEYWORDS = [
+        "age",
+        "aged",
+        "years old",
+        "youth",
+        "youths",
+        "senior",
+        "seniors",
+        "elderly",
+        "young",
+        "old",
+        "teenager",
+        "teenagers",
+    ]
+    SEX_KEYWORDS = [
+        "male",
+        "males",
+        "female",
+        "females",
+        "men",
+        "women",
+        "sex",
+        "gender",
+        "man",
+        "woman",
+    ]
     INDUSTRY_KEYWORDS = [
-        "industry", "industries", "sector", "sectors", "manufacturing", "services", "service", "finance", "financial", "healthcare",
-        "education", "educational", "construction", "retail", "hospitality", "technology", "tech", "technological"
+        "industry",
+        "industries",
+        "sector",
+        "sectors",
+        "manufacturing",
+        "services",
+        "service",
+        "finance",
+        "financial",
+        "healthcare",
+        "education",
+        "educational",
+        "construction",
+        "retail",
+        "hospitality",
+        "technology",
+        "tech",
+        "technological",
     ]
     QUALIFICATION_KEYWORDS = [
-        "qualification", "qualifications", "education", "educational", "degree", "degrees", "diploma", "diplomas", "university", "college",
-        "secondary", "primary", "postgraduate", "graduate", "graduates", "bachelor", "bachelors", "master", "masters",
-        "phd", "doctorate", "vocational", "professional"
+        "qualification",
+        "qualifications",
+        "education",
+        "educational",
+        "degree",
+        "degrees",
+        "diploma",
+        "diplomas",
+        "university",
+        "college",
+        "secondary",
+        "primary",
+        "postgraduate",
+        "graduate",
+        "graduates",
+        "bachelor",
+        "bachelors",
+        "master",
+        "masters",
+        "phd",
+        "doctorate",
+        "vocational",
+        "professional",
     ]
 
     @property
@@ -87,7 +162,7 @@ class QueryVerificationAgent(BaseAgent):
             {
                 "continue": "extract_years",
                 "invalid": "format_result",
-            }
+            },
         )
         workflow.add_conditional_edges(
             "extract_years",
@@ -96,7 +171,7 @@ class QueryVerificationAgent(BaseAgent):
                 "continue": "check_dimensions",
                 "needs_input": "format_result",  # Go to format_result to return message
                 "invalid": "format_result",
-            }
+            },
         )
         workflow.add_conditional_edges(
             "check_dimensions",
@@ -104,7 +179,7 @@ class QueryVerificationAgent(BaseAgent):
             {
                 "continue": "check_year_availability",
                 "invalid": "format_result",  # Dimension validation failed
-            }
+            },
         )
         workflow.add_conditional_edges(
             "check_year_availability",
@@ -112,7 +187,7 @@ class QueryVerificationAgent(BaseAgent):
             {
                 "valid": "format_result",
                 "needs_input": "format_result",  # Go to format_result to return message
-            }
+            },
         )
         workflow.add_edge("format_result", END)
 
@@ -158,7 +233,7 @@ class QueryVerificationAgent(BaseAgent):
         else:
             return "needs_input"  # Pause to let user provide correct year
 
-    async def _validate_topic_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _validate_topic_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Validate if query is about allowed topics."""
         current_task = state.get("current_task", "").lower()
 
@@ -167,7 +242,9 @@ class QueryVerificationAgent(BaseAgent):
 
         validation = {
             "topic_valid": topic_valid,
-            "reason": "" if topic_valid else "Query must be about employment, income, or hours worked",
+            "reason": (
+                "" if topic_valid else "Query must be about employment, income, or hours worked"
+            ),
         }
 
         return {
@@ -178,18 +255,19 @@ class QueryVerificationAgent(BaseAgent):
             },
         }
 
-    async def _extract_years_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _extract_years_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Extract year or year range from query."""
-        from app.db.session import get_db, async_session_factory
         from sqlalchemy import text
+
+        from app.db.session import async_session_factory, get_db
 
         current_task = state.get("current_task", "")
         validation = state.get("query_validation", {})
 
         # Extract years using regex patterns
         year_patterns = [
-            r'\b(19\d{2}|20[0-4]\d)\b',  # Single year (1900-2049)
-            r'\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until)\s*(19\d{2}|20[0-4]\d)\b',  # Range
+            r"\b(19\d{2}|20[0-4]\d)\b",  # Single year (1900-2049)
+            r"\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until)\s*(19\d{2}|20[0-4]\d)\b",  # Range
         ]
 
         years_found = []
@@ -205,10 +283,12 @@ class QueryVerificationAgent(BaseAgent):
         if years_found:
             min_year = min(years_found)
             max_year = max(years_found)
-            validation.update({
-                "years_found": True,
-                "requested_years": {"min": min_year, "max": max_year},
-            })
+            validation.update(
+                {
+                    "years_found": True,
+                    "requested_years": {"min": min_year, "max": max_year},
+                }
+            )
         else:
             # Fetch available years to help user
             available_years = {}
@@ -218,13 +298,15 @@ class QueryVerificationAgent(BaseAgent):
                     async with get_db() as session:
                         for category in categories:
                             table_name = f"{category}_dataset_metadata"
-                            query = text(f"""
+                            query = text(
+                                f"""
                                 SELECT
                                     MIN((year_range->>'min')::int) as min_year,
                                     MAX((year_range->>'max')::int) as max_year
                                 FROM {table_name}
                                 WHERE year_range IS NOT NULL
-                            """)
+                            """
+                            )
                             result = await session.execute(query)
                             row = result.fetchone()
                             if row and row[0] is not None:
@@ -243,14 +325,16 @@ class QueryVerificationAgent(BaseAgent):
 
             reason = "Which year or year range are you interested in?"
             if year_info:
-                reason += f"\n\nAvailable data:\n" + "\n".join(f"• {info}" for info in year_info)
+                reason += "\n\nAvailable data:\n" + "\n".join(f"• {info}" for info in year_info)
 
             # Mark as missing instead of failing
-            validation.update({
-                "years_found": False,
-                "missing_year": True,
-                "reason": reason,
-            })
+            validation.update(
+                {
+                    "years_found": False,
+                    "missing_year": True,
+                    "reason": reason,
+                }
+            )
 
         return {
             "query_validation": validation,
@@ -260,7 +344,7 @@ class QueryVerificationAgent(BaseAgent):
             },
         }
 
-    async def _check_dimensions_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _check_dimensions_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Check if employment dimensions are specified.
 
         For employment queries, check if age, sex, industry, or qualification is mentioned.
@@ -272,7 +356,15 @@ class QueryVerificationAgent(BaseAgent):
         # Only check dimensions for employment-related queries
         is_employment_query = any(
             keyword in current_task
-            for keyword in ["employment", "employed", "unemployment", "job", "jobs", "workforce", "worker"]
+            for keyword in [
+                "employment",
+                "employed",
+                "unemployment",
+                "job",
+                "jobs",
+                "workforce",
+                "worker",
+            ]
         )
 
         if not is_employment_query:
@@ -290,9 +382,10 @@ class QueryVerificationAgent(BaseAgent):
         def has_keyword_match(keywords: list, text: str) -> bool:
             """Check if any keyword matches using word boundaries."""
             import re
+
             for keyword in keywords:
                 # Use word boundaries to match whole words only
-                pattern = r'\b' + re.escape(keyword) + r'\b'
+                pattern = r"\b" + re.escape(keyword) + r"\b"
                 if re.search(pattern, text, re.IGNORECASE):
                     return True
             return False
@@ -323,7 +416,9 @@ class QueryVerificationAgent(BaseAgent):
         if qual_mentioned:
             dimensions_found.append("qualification")
         else:
-            dimension_suggestions.append("education level (e.g., 'university', 'diploma', 'secondary')")
+            dimension_suggestions.append(
+                "education level (e.g., 'university', 'diploma', 'secondary')"
+            )
 
         # Add dimension info to validation
         dimension_info = {
@@ -341,7 +436,7 @@ class QueryVerificationAgent(BaseAgent):
                 "• **Sex/Gender** - e.g., 'male', 'female'\n"
                 "• **Industry/Sector** - e.g., 'technology', 'finance', 'manufacturing'\n"
                 "• **Qualification** - e.g., 'university degree', 'diploma', 'secondary education'\n\n"
-                "Example: \"What is the employment rate for females in the technology industry?\""
+                'Example: "What is the employment rate for females in the technology industry?"'
             )
         else:
             dimension_info["dimensions_valid"] = True
@@ -356,10 +451,11 @@ class QueryVerificationAgent(BaseAgent):
             },
         }
 
-    async def _check_year_availability_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _check_year_availability_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Check if requested years are available in datasets."""
-        from app.db.session import get_db, async_session_factory
-        from sqlalchemy import select, text
+        from sqlalchemy import text
+
+        from app.db.session import async_session_factory, get_db
 
         validation = state.get("query_validation", {})
         requested = validation.get("requested_years", {})
@@ -382,13 +478,15 @@ class QueryVerificationAgent(BaseAgent):
                     table_name = f"{category}_dataset_metadata"
 
                     # Query year ranges from metadata
-                    query = text(f"""
+                    query = text(
+                        f"""
                         SELECT
                             MIN((year_range->>'min')::int) as min_year,
                             MAX((year_range->>'max')::int) as max_year
                         FROM {table_name}
                         WHERE year_range IS NOT NULL
-                    """)
+                    """
+                    )
 
                     result = await session.execute(query)
                     row = result.fetchone()
@@ -438,7 +536,7 @@ class QueryVerificationAgent(BaseAgent):
             },
         }
 
-    async def _format_result_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _format_result_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Format validation result."""
         validation = state.get("query_validation", {})
 
@@ -450,10 +548,12 @@ class QueryVerificationAgent(BaseAgent):
         # Determine overall validity
         # Must have valid topic, years found, years available, AND dimensions (if employment query)
         is_valid = (
-            validation.get("topic_valid", False) and
-            validation.get("years_found", False) and
-            validation.get("years_available", True) and  # Default true if not checked
-            (not is_employment_query or dimensions_valid)  # Check dimensions for employment queries
+            validation.get("topic_valid", False)
+            and validation.get("years_found", False)
+            and validation.get("years_available", True)  # Default true if not checked
+            and (
+                not is_employment_query or dimensions_valid
+            )  # Check dimensions for employment queries
         )
 
         validation["valid"] = is_valid
@@ -515,7 +615,9 @@ class QueryVerificationAgent(BaseAgent):
         validation_model = QueryValidationResult(
             valid=is_valid,
             topic_valid=validation_dict.get("topic_valid", False),
-            reason=validation_dict.get("reason", "Query validated" if is_valid else "Invalid query"),
+            reason=validation_dict.get(
+                "reason", "Query validated" if is_valid else "Invalid query"
+            ),
             years_found=validation_dict.get("years_found", False),
             requested_years=requested_years,
             missing_year=validation_dict.get("missing_year", False),

@@ -1,0 +1,94 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+# Plus: isort (I), unused imports (F401), etc.
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # Line too long (handled by black)
+    "B008",  # Do not perform function call in argument defaults (common in FastAPI)
+    "B904",  # Use `raise from` to specify exception cause
+    "UP042", # Class inherits from both str and Enum (intentional for string enums)
+    "N806",  # Variable name should be lowercase (many scientific vars use uppercase)
+    "B905",  # zip() without explicit strict parameter (TODO: add strict=True later)
+    "E402",  # Module level import not at top of file (some conditional imports)
+    "B017",  # assertRaises(Exception) should be more specific
+    "E712",  # Comparison to True should be `if cond is True:` or `if cond:`
+    "E741",  # Ambiguous variable name (l, O, I)
+    "SIM105", # Use contextlib.suppress() instead of try-except-pass
+    "SIM117", # Use a single with statement with multiple contexts
+    "SIM108", # Use ternary operator instead of if-else-block
+    "C408",  # Unnecessary collection call - use {} instead of dict()
+    "C416",  # Unnecessary list comprehension
+    "B007",  # Unused loop control variable (TODO: use _ for unused vars)
+    "SIM102", # Collapsible if statements (TODO: simplify nested ifs)
+    "F841",  # Local variable assigned but never used (TODO: remove or prefix with _)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"tests/**/*.py" = ["S101"]  # Allow assert in tests
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.venv
+  | venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Start lenient, can be made stricter
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]

@@ -2,14 +2,13 @@
 
 import logging
 import uuid
-from typing import Dict, List
 
 from fastapi import APIRouter, HTTPException
 
 from app.models import (
+    ChatMessage,
     ChatRequest,
     ChatResponse,
-    ChatMessage,
     VisualizationData,
 )
 from app.services.agents.orchestrator import get_orchestrator
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # In-memory conversation storage (use Redis/DB in production)
-conversations: Dict[str, List[ChatMessage]] = {}
+conversations: dict[str, list[ChatMessage]] = {}
 
 
 @router.post("/", response_model=ChatResponse)
@@ -87,7 +86,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 visualization=visualization,
                 sources=result.get("sources"),
                 metadata={
-                    "agents_used": result.get("metadata", {}).get("agents_used", ["Query Verification", "Data Coordinator", "Data Extraction", "Analytics"]),
+                    "agents_used": result.get("metadata", {}).get(
+                        "agents_used",
+                        ["Query Verification", "Data Coordinator", "Data Extraction", "Analytics"],
+                    ),
                     "resumed_from_checkpoint": True,
                     "original_query": result.get("metadata", {}).get("original_query"),
                     "user_provided": str(request.user_input.get("year", "")),
@@ -96,13 +98,16 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
         # Normal flow - existing message handling
         if not request.message:
-            raise HTTPException(status_code=400, detail="Message is required when not resuming from checkpoint")
+            raise HTTPException(
+                status_code=400, detail="Message is required when not resuming from checkpoint"
+            )
 
         logger.info(f"Message: {request.message[:100]}...")
 
         # AUTOMATIC CHECKPOINT DETECTION
         # Check if there's a pending checkpoint for this conversation
         from app.services.checkpoint_service import get_checkpoint_service
+
         checkpoint_service = get_checkpoint_service()
         pending_checkpoint = checkpoint_service.find_checkpoint_by_conversation(conversation_id)
 
@@ -116,9 +121,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
             if waiting_for.get("type") == "year_specification":
                 # Message might be a year - try to parse it
                 import re
+
                 year_patterns = [
-                    r'\b(19\d{2}|20[0-4]\d)\b',
-                    r'\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until)\s*(19\d{2}|20[0-4]\d)\b',
+                    r"\b(19\d{2}|20[0-4]\d)\b",
+                    r"\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until)\s*(19\d{2}|20[0-4]\d)\b",
                 ]
 
                 has_year = False
@@ -134,7 +140,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
                 if is_year_only or has_year:
                     # Automatically resume from checkpoint
-                    logger.info(f"🔄 Auto-detected year input for checkpoint {pending_checkpoint.id}")
+                    logger.info(
+                        f"🔄 Auto-detected year input for checkpoint {pending_checkpoint.id}"
+                    )
                     logger.info(f"Original query: {pending_checkpoint.original_query}")
 
                     orchestrator = get_orchestrator()
@@ -186,8 +194,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         chat_history = []
         if conversation_id in conversations:
             chat_history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in conversations[conversation_id]
+                {"role": msg.role, "content": msg.content} for msg in conversations[conversation_id]
             ]
             logger.info(f"Loaded {len(chat_history)} previous messages")
 
@@ -202,7 +209,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
             chat_history=chat_history,
             conversation_id=conversation_id,
         )
-        logger.info(f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}")
+        logger.info(
+            f"Workflow completed. Agents used: {result.get('metadata', {}).get('agents_used', [])}"
+        )
 
         # Check if workflow paused for input
         if result.get("metadata", {}).get("status") == "paused":
@@ -210,9 +219,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             if conversation_id not in conversations:
                 conversations[conversation_id] = []
 
-            conversations[conversation_id].append(
-                ChatMessage(role="user", content=request.message)
-            )
+            conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
             conversations[conversation_id].append(
                 ChatMessage(role="assistant", content=result["message"])
             )
@@ -243,7 +250,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     "validation_failed": True,
                     "validation_details": validation,
                     "agents_used": result.get("metadata", {}).get("agents_used", []),
-                }
+                },
             )
 
         if result.get("error") and not result.get("message"):
@@ -253,9 +260,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         if conversation_id not in conversations:
             conversations[conversation_id] = []
 
-        conversations[conversation_id].append(
-            ChatMessage(role="user", content=request.message)
-        )
+        conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
         conversations[conversation_id].append(
             ChatMessage(role="assistant", content=result["message"])
         )
@@ -291,7 +296,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @router.get("/agents")
-async def list_agents() -> Dict:
+async def list_agents() -> dict:
     """List all available agents in the system."""
     orchestrator = get_orchestrator()
     return {
@@ -322,7 +327,7 @@ async def list_agents() -> Dict:
 
 
 @router.get("/history/{conversation_id}")
-async def get_conversation_history(conversation_id: str) -> Dict:
+async def get_conversation_history(conversation_id: str) -> dict:
     """Get conversation history."""
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -337,7 +342,7 @@ async def get_conversation_history(conversation_id: str) -> Dict:
 
 
 @router.delete("/history/{conversation_id}")
-async def clear_conversation(conversation_id: str) -> Dict:
+async def clear_conversation(conversation_id: str) -> dict:
     """Clear conversation history."""
     if conversation_id in conversations:
         del conversations[conversation_id]
@@ -346,7 +351,7 @@ async def clear_conversation(conversation_id: str) -> Dict:
 
 
 @router.get("/conversations")
-async def list_conversations() -> Dict:
+async def list_conversations() -> dict:
     """List all conversation IDs."""
     return {
         "conversations": list(conversations.keys()),

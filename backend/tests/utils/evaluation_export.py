@@ -22,10 +22,10 @@ Usage:
 
 import json
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -37,36 +37,37 @@ class EvaluationResult:
 
     Contains query, answer, contexts, scores, and metadata.
     """
+
     query: str
     answer: str
     agent: str
-    contexts: Optional[List[str]] = None
-    ground_truth: Optional[str] = None
+    contexts: list[str] | None = None
+    ground_truth: str | None = None
 
     # Scores
-    ragas_context_precision: Optional[float] = None
-    ragas_context_recall: Optional[float] = None
-    ragas_faithfulness: Optional[float] = None
-    ragas_answer_relevancy: Optional[float] = None
-    ragas_answer_correctness: Optional[float] = None
+    ragas_context_precision: float | None = None
+    ragas_context_recall: float | None = None
+    ragas_faithfulness: float | None = None
+    ragas_answer_relevancy: float | None = None
+    ragas_answer_correctness: float | None = None
 
-    bertscore_precision: Optional[float] = None
-    bertscore_recall: Optional[float] = None
-    bertscore_f1: Optional[float] = None
+    bertscore_precision: float | None = None
+    bertscore_recall: float | None = None
+    bertscore_f1: float | None = None
 
-    llm_judge_overall: Optional[float] = None
-    llm_judge_accuracy: Optional[float] = None
-    llm_judge_completeness: Optional[float] = None
-    llm_judge_clarity: Optional[float] = None
-    llm_judge_conciseness: Optional[float] = None
-    llm_judge_code_quality: Optional[float] = None
-    llm_judge_visualization: Optional[float] = None
+    llm_judge_overall: float | None = None
+    llm_judge_accuracy: float | None = None
+    llm_judge_completeness: float | None = None
+    llm_judge_clarity: float | None = None
+    llm_judge_conciseness: float | None = None
+    llm_judge_code_quality: float | None = None
+    llm_judge_visualization: float | None = None
 
     # Metadata
-    timestamp: Optional[str] = None
-    latency_ms: Optional[float] = None
-    tokens_used: Optional[int] = None
-    model_name: Optional[str] = None
+    timestamp: str | None = None
+    latency_ms: float | None = None
+    tokens_used: int | None = None
+    model_name: str | None = None
 
     def get_overall_score(self) -> float:
         """Calculate aggregate score across all metrics."""
@@ -78,9 +79,12 @@ class EvaluationResult:
             self.ragas_answer_relevancy,
             self.ragas_answer_correctness,
         ]
-        ragas_avg = sum(s for s in ragas_scores if s is not None) / len(
-            [s for s in ragas_scores if s is not None]
-        ) if any(s is not None for s in ragas_scores) else None
+        ragas_avg = (
+            sum(s for s in ragas_scores if s is not None)
+            / len([s for s in ragas_scores if s is not None])
+            if any(s is not None for s in ragas_scores)
+            else None
+        )
         if ragas_avg:
             scores.append(ragas_avg * 0.4)
 
@@ -94,7 +98,7 @@ class EvaluationResult:
 
         return sum(scores) if scores else 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         return {k: v for k, v in asdict(self).items() if v is not None}
 
@@ -112,7 +116,7 @@ class EvaluationExporter:
 
     def export_to_jsonl(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         output_path: Path,
         min_score: float = 0.0,
         include_metadata: bool = True,
@@ -169,10 +173,10 @@ class EvaluationExporter:
 
     def export_to_openai_format(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         output_path: Path,
         min_score: float = 0.0,
-        system_prompts: Optional[Dict[str, str]] = None,
+        system_prompts: dict[str, str] | None = None,
         include_metadata: bool = True,
     ) -> int:
         """
@@ -242,10 +246,10 @@ class EvaluationExporter:
 
     def export_to_anthropic_format(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         output_path: Path,
         min_score: float = 0.0,
-        system_prompts: Optional[Dict[str, str]] = None,
+        system_prompts: dict[str, str] | None = None,
         include_metadata: bool = True,
     ) -> int:
         """
@@ -315,7 +319,7 @@ class EvaluationExporter:
 
     def export_to_csv(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         output_path: Path,
         min_score: float = 0.0,
     ) -> int:
@@ -372,7 +376,7 @@ class EvaluationExporter:
 
     def export_to_parquet(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         output_path: Path,
         min_score: float = 0.0,
     ) -> int:
@@ -433,9 +437,9 @@ class EvaluationExporter:
 
     def filter_by_threshold(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         min_score: float = 0.0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Filter results by minimum overall score.
 
@@ -456,17 +460,16 @@ class EvaluationExporter:
                 filtered.append(result)
 
         logger.info(
-            f"Filtered {len(results)} results to {len(filtered)} "
-            f"with min_score={min_score}"
+            f"Filtered {len(results)} results to {len(filtered)} " f"with min_score={min_score}"
         )
 
         return filtered
 
     def generate_summary_report(
         self,
-        results: List[Dict[str, Any]],
-        output_path: Optional[Path] = None,
-    ) -> Dict[str, Any]:
+        results: list[dict[str, Any]],
+        output_path: Path | None = None,
+    ) -> dict[str, Any]:
         """
         Generate summary report with aggregate metrics.
 
@@ -517,15 +520,11 @@ class EvaluationExporter:
                 "avg_score": sum(scores) / len(scores) if scores else 0.0,
                 "min_score": min(scores) if scores else 0.0,
                 "max_score": max(scores) if scores else 0.0,
-                "pass_rate": sum(1 for s in scores if s >= 0.80) / len(scores)
-                if scores
-                else 0.0,
+                "pass_rate": sum(1 for s in scores if s >= 0.80) / len(scores) if scores else 0.0,
             }
 
             if latencies:
-                report["by_agent"][agent]["avg_latency_ms"] = sum(latencies) / len(
-                    latencies
-                )
+                report["by_agent"][agent]["avg_latency_ms"] = sum(latencies) / len(latencies)
 
         # Save to file if path provided
         if output_path:
@@ -536,7 +535,7 @@ class EvaluationExporter:
 
         return report
 
-    def _extract_scores(self, result: Dict[str, Any]) -> Dict[str, float]:
+    def _extract_scores(self, result: dict[str, Any]) -> dict[str, float]:
         """Extract score fields from result."""
         scores = {}
 
@@ -564,7 +563,7 @@ class EvaluationExporter:
 
         return scores
 
-    def _extract_metadata(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_metadata(self, result: dict[str, Any]) -> dict[str, Any]:
         """Extract metadata fields from result."""
         metadata = {}
 
@@ -582,7 +581,7 @@ class EvaluationExporter:
 
         return metadata
 
-    def _calculate_overall_score(self, result: Dict[str, Any]) -> float:
+    def _calculate_overall_score(self, result: dict[str, Any]) -> float:
         """
         Calculate aggregate overall score.
 
@@ -599,9 +598,12 @@ class EvaluationExporter:
             result.get("ragas_answer_relevancy"),
             result.get("ragas_answer_correctness"),
         ]
-        ragas_avg = sum(s for s in ragas_scores if s is not None) / len(
-            [s for s in ragas_scores if s is not None]
-        ) if any(s is not None for s in ragas_scores) else None
+        ragas_avg = (
+            sum(s for s in ragas_scores if s is not None)
+            / len([s for s in ragas_scores if s is not None])
+            if any(s is not None for s in ragas_scores)
+            else None
+        )
         if ragas_avg:
             scores.append(ragas_avg * 0.4)
 
@@ -615,7 +617,7 @@ class EvaluationExporter:
 
         return sum(scores) if scores else 0.0
 
-    def _aggregate_metrics(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _aggregate_metrics(self, results: list[dict[str, Any]]) -> dict[str, Any]:
         """Calculate aggregate metrics across all results."""
         metrics = {
             "ragas": {},

@@ -11,8 +11,6 @@ Tests evaluate all agent responses (verification, coordinator, extraction, analy
 """
 
 import pytest
-import numpy as np
-from typing import List, Dict, Any
 
 from app.services.agents.base_agent import AgentState
 
@@ -32,9 +30,10 @@ class TestBERTScoreEvaluation:
         sample_datasets,
     ):
         """Test BERTScore F1 on generated analytics answers."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         import asyncio
         import time
+
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         def normalize_answer(text: str) -> str:
             """Normalize analytics agent response for fair BERTScore comparison.
@@ -48,19 +47,19 @@ class TestBERTScoreEvaluation:
                 return text
 
             # Remove markdown headers (## Title)
-            text = re.sub(r'^##\s+.*?\n\n?', '', text, flags=re.MULTILINE)
+            text = re.sub(r"^##\s+.*?\n\n?", "", text, flags=re.MULTILINE)
 
             # Remove bold **Note:** disclaimers at the start
-            text = re.sub(r'^\*\*Note:\*\*.*?(?=\n\n|\Z)', '', text, flags=re.DOTALL)
+            text = re.sub(r"^\*\*Note:\*\*.*?(?=\n\n|\Z)", "", text, flags=re.DOTALL)
 
             # Remove markdown bold formatting (**text**)
-            text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+            text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
 
             # Remove bullet points and list formatting
-            text = re.sub(r'^\s*[•\-\*]\s+', '', text, flags=re.MULTILINE)
+            text = re.sub(r"^\s*[•\-\*]\s+", "", text, flags=re.MULTILINE)
 
             # Remove extra whitespace and newlines
-            text = re.sub(r'\n{3,}', '\n\n', text)
+            text = re.sub(r"\n{3,}", "\n\n", text)
             text = text.strip()
 
             return text
@@ -122,8 +121,7 @@ class TestBERTScoreEvaluation:
         start_time = time.time()
         print(f"Processing {len(test_cases)} queries in parallel...")
         results = await asyncio.gather(
-            *[process_query(tid, gtd) for tid, gtd in test_cases],
-            return_exceptions=True
+            *[process_query(tid, gtd) for tid, gtd in test_cases], return_exceptions=True
         )
 
         processing_time = time.time() - start_time
@@ -146,25 +144,31 @@ class TestBERTScoreEvaluation:
             pytest.skip("No valid answers generated - all queries failed validation or execution")
 
         success_rate = len(candidates) / len(test_cases)
-        print(f"Successfully generated {len(candidates)}/{len(test_cases)} answers ({success_rate:.1%})")
+        print(
+            f"Successfully generated {len(candidates)}/{len(test_cases)} answers ({success_rate:.1%})"
+        )
 
         # Debug: Print first candidate and reference for comparison
         if candidates:
-            print(f"\n=== Sample Comparison ===")
+            print("\n=== Sample Comparison ===")
             print(f"Generated (first 300 chars): {candidates[0][:300]}...")
             print(f"Ground truth (first 300 chars): {references[0][:300]}...")
 
         # Require at least 1 successful answer for meaningful evaluation
         # (We're testing 2 queries, so getting 1-2 successful answers is expected)
         if len(candidates) < 1:
-            pytest.skip(f"Insufficient answers for evaluation (got {len(candidates)}, need at least 1)")
+            pytest.skip(
+                f"Insufficient answers for evaluation (got {len(candidates)}, need at least 1)"
+            )
 
         # Evaluate with BERTScore
         results = bertscore_evaluator.evaluate_batch(candidates, references)
         aggregate = bertscore_evaluator.get_aggregate_scores(results)
 
-        print(f"\nBERTScore Results - P: {aggregate.precision:.4f}, "
-              f"R: {aggregate.recall:.4f}, F1: {aggregate.f1:.4f}")
+        print(
+            f"\nBERTScore Results - P: {aggregate.precision:.4f}, "
+            f"R: {aggregate.recall:.4f}, F1: {aggregate.f1:.4f}"
+        )
         print(f"Total test time: {time.time() - start_time:.2f}s")
 
         # Check thresholds
@@ -186,25 +190,27 @@ class TestBERTScoreEvaluation:
         #
         # For now, use lenient thresholds to allow test to pass while optimization is validated
         min_precision = 0.15  # Temporary (target: 0.65)
-        min_recall = 0.30     # Temporary (target: 0.65)
-        min_f1 = 0.25         # Temporary (target: 0.70)
+        min_recall = 0.30  # Temporary (target: 0.65)
+        min_f1 = 0.25  # Temporary (target: 0.70)
 
         assert aggregate.precision >= min_precision, (
             f"BERTScore precision {aggregate.precision:.4f} below threshold {min_precision}\n"
             f"⚠️  This may indicate the new analytics agent is producing very different responses.\n"
             f"   Check ground truth answers match available data and agent style."
         )
-        assert aggregate.recall >= min_recall, (
-            f"BERTScore recall {aggregate.recall:.4f} below threshold {min_recall}"
-        )
-        assert aggregate.f1 >= min_f1, (
-            f"BERTScore F1 {aggregate.f1:.4f} below threshold {min_f1}"
-        )
+        assert (
+            aggregate.recall >= min_recall
+        ), f"BERTScore recall {aggregate.recall:.4f} below threshold {min_recall}"
+        assert aggregate.f1 >= min_f1, f"BERTScore F1 {aggregate.f1:.4f} below threshold {min_f1}"
 
         # Log warning if scores are significantly below target
         if aggregate.f1 < 0.50:
-            print(f"\n⚠️  WARNING: BERTScore F1 ({aggregate.f1:.4f}) is significantly below target (0.70)")
-            print("This suggests ground truth answers need updating to match new analytics agent style.")
+            print(
+                f"\n⚠️  WARNING: BERTScore F1 ({aggregate.f1:.4f}) is significantly below target (0.70)"
+            )
+            print(
+                "This suggests ground truth answers need updating to match new analytics agent style."
+            )
 
     @pytest.mark.asyncio
     async def test_bertscore_per_agent(
@@ -215,7 +221,6 @@ class TestBERTScoreEvaluation:
     ):
         """Test BERTScore for each agent type."""
         from app.services.agents.verification import QueryVerificationAgent
-        from app.services.agents.analytics import AnalyticsAgent
 
         # Test verification agent
         verification_agent = QueryVerificationAgent()
@@ -265,8 +270,9 @@ class TestFaithfulness:
         sample_datasets,
     ):
         """Test that generated answers are faithful to retrieved context."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         import asyncio
+
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         orchestrator = AgentOrchestrator()
 
@@ -292,8 +298,7 @@ class TestFaithfulness:
 
         # OPTIMIZATION: Parallel processing (even with 1 query, maintains pattern)
         results = await asyncio.gather(
-            *[process_query(q) for q in test_queries],
-            return_exceptions=True
+            *[process_query(q) for q in test_queries], return_exceptions=True
         )
 
         queries = []
@@ -378,8 +383,9 @@ class TestAnswerRelevancy:
         sample_datasets,
     ):
         """Test that answers are relevant to the query."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         import asyncio
+
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         orchestrator = AgentOrchestrator()
 
@@ -403,8 +409,7 @@ class TestAnswerRelevancy:
 
         # OPTIMIZATION: Parallel processing
         results = await asyncio.gather(
-            *[process_query(q) for q in test_queries],
-            return_exceptions=True
+            *[process_query(q) for q in test_queries], return_exceptions=True
         )
 
         queries = []
@@ -429,9 +434,9 @@ class TestAnswerRelevancy:
 
         if ragas_result.answer_relevancy:
             print(f"Answer Relevancy: {ragas_result.answer_relevancy:.4f}")
-            assert ragas_result.answer_relevancy >= 0.75, (
-                f"Answer Relevancy {ragas_result.answer_relevancy:.4f} below threshold"
-            )
+            assert (
+                ragas_result.answer_relevancy >= 0.75
+            ), f"Answer Relevancy {ragas_result.answer_relevancy:.4f} below threshold"
 
 
 @pytest.mark.evaluation
@@ -449,8 +454,9 @@ class TestAnswerCorrectness:
         sample_datasets,
     ):
         """Test factual accuracy against ground truth."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         import asyncio
+
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         orchestrator = AgentOrchestrator()
 
@@ -471,7 +477,11 @@ class TestAnswerCorrectness:
 
                 if answer:
                     # Use actual sources as context, or placeholder if none
-                    contexts = [f"Dataset: {s}" for s in sources] if sources else ["Retrieved from available datasets"]
+                    contexts = (
+                        [f"Dataset: {s}" for s in sources]
+                        if sources
+                        else ["Retrieved from available datasets"]
+                    )
                     return (query, answer, contexts, ground_truth)
                 return None
             except Exception as e:
@@ -480,8 +490,7 @@ class TestAnswerCorrectness:
 
         # OPTIMIZATION: Parallel processing
         results = await asyncio.gather(
-            *[process_query(tid, gtd) for tid, gtd in test_cases],
-            return_exceptions=True
+            *[process_query(tid, gtd) for tid, gtd in test_cases], return_exceptions=True
         )
 
         queries = []
@@ -511,9 +520,9 @@ class TestAnswerCorrectness:
             print(f"Answer Correctness: {ragas_result.answer_correctness:.4f}")
             # Relaxed threshold to account for LLM variance and test data limitations
             # Further reduced to 0.55 to handle flaky test behavior in batch runs
-            assert ragas_result.answer_correctness >= 0.55, (
-                f"Answer Correctness {ragas_result.answer_correctness:.4f} below threshold"
-            )
+            assert (
+                ragas_result.answer_correctness >= 0.55
+            ), f"Answer Correctness {ragas_result.answer_correctness:.4f} below threshold"
 
 
 @pytest.mark.evaluation
@@ -529,8 +538,9 @@ class TestAgentSpecificMetrics:
         sample_queries,
     ):
         """Test verification agent output quality."""
-        from app.services.agents.verification import QueryVerificationAgent
         import asyncio
+
+        from app.services.agents.verification import QueryVerificationAgent
 
         agent = QueryVerificationAgent()
 
@@ -559,8 +569,7 @@ class TestAgentSpecificMetrics:
 
         # OPTIMIZATION: Parallel processing
         results = await asyncio.gather(
-            *[validate_query(test) for test in test_cases],
-            return_exceptions=True
+            *[validate_query(test) for test in test_cases], return_exceptions=True
         )
 
         # Count correct validations (filter out exceptions)
@@ -583,8 +592,9 @@ class TestAgentSpecificMetrics:
         sample_datasets,
     ):
         """Test extraction agent data relevance."""
-        from app.services.agents.extraction import DataExtractionAgent
         import asyncio
+
+        from app.services.agents.extraction import DataExtractionAgent
 
         agent = DataExtractionAgent()
 
@@ -616,8 +626,7 @@ class TestAgentSpecificMetrics:
 
         # OPTIMIZATION: Parallel processing
         results = await asyncio.gather(
-            *[extract_data(test) for test in test_queries],
-            return_exceptions=True
+            *[extract_data(test) for test in test_queries], return_exceptions=True
         )
 
         # Count relevant extractions (filter out exceptions)
@@ -654,7 +663,12 @@ class TestAgentSpecificMetrics:
             "income_from_work_2020": {
                 "dataset_name": "income_from_work_2020",
                 "columns": ["year", "age_group", "sex", "average_income"],
-                "dtypes": {"year": "int64", "age_group": "object", "sex": "object", "average_income": "float64"},
+                "dtypes": {
+                    "year": "int64",
+                    "age_group": "object",
+                    "sex": "object",
+                    "average_income": "float64",
+                },
                 "data": [
                     {"year": 2020, "age_group": "25-34", "sex": "Male", "average_income": 4500.0},
                     {"year": 2020, "age_group": "25-34", "sex": "Female", "average_income": 4200.0},
@@ -699,8 +713,9 @@ class TestEndToEndGeneration:
         sample_datasets,
     ):
         """Test all generation metrics on full pipeline."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         import asyncio
+
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         orchestrator = AgentOrchestrator()
 
@@ -728,8 +743,7 @@ class TestEndToEndGeneration:
 
         # OPTIMIZATION: Parallel processing
         results = await asyncio.gather(
-            *[process_query(tid, gtd) for tid, gtd in test_cases],
-            return_exceptions=True
+            *[process_query(tid, gtd) for tid, gtd in test_cases], return_exceptions=True
         )
 
         queries = []
@@ -772,7 +786,9 @@ class TestEndToEndGeneration:
         # Assertions
         # Relaxed thresholds to account for test data limitations and LLM variance
         if ragas_result.faithfulness:
-            assert ragas_result.faithfulness >= 0.40, "Faithfulness too low"  # Relaxed for test data
+            assert (
+                ragas_result.faithfulness >= 0.40
+            ), "Faithfulness too low"  # Relaxed for test data
         if ragas_result.answer_relevancy:
             assert ragas_result.answer_relevancy >= 0.50, "Relevancy too low"  # Lowered from 0.70
         assert bert_aggregate.f1 >= 0.20, "BERTScore F1 too low"  # Relaxed for style differences

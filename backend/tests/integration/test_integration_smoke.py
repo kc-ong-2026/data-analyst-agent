@@ -29,12 +29,14 @@ class TestDatabaseIntegration:
         from sqlalchemy import text
 
         result = await async_db_session.execute(
-            text("""
+            text(
+                """
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_name = 'dataset_metadata'
             )
-            """)
+            """
+            )
         )
         exists = result.scalar()
         assert exists is True
@@ -49,15 +51,16 @@ class TestImportsWork:
     def test_can_import_orchestrator(self):
         """Test orchestrator can be imported."""
         from app.services.agents.orchestrator import AgentOrchestrator
+
         assert AgentOrchestrator is not None
         print("✅ Orchestrator imports successfully")
 
     def test_can_import_agents(self):
         """Test agents can be imported."""
-        from app.services.agents.verification import QueryVerificationAgent
+        from app.services.agents.analytics import AnalyticsAgent
         from app.services.agents.coordinator import DataCoordinatorAgent
         from app.services.agents.extraction import DataExtractionAgent
-        from app.services.agents.analytics import AnalyticsAgent
+        from app.services.agents.verification import QueryVerificationAgent
 
         assert QueryVerificationAgent is not None
         assert DataCoordinatorAgent is not None
@@ -68,6 +71,7 @@ class TestImportsWork:
     def test_can_import_rag_service(self):
         """Test RAG service can be imported."""
         from app.services.rag_service import RAGService
+
         assert RAGService is not None
         print("✅ RAG service imports successfully")
 
@@ -77,9 +81,9 @@ class TestImportsWork:
 
         config = get_config()
         assert config is not None
-        assert hasattr(config, 'get_llm_config')
-        assert hasattr(config, 'get_rag_config')
-        assert hasattr(config, 'yaml_config')
+        assert hasattr(config, "get_llm_config")
+        assert hasattr(config, "get_rag_config")
+        assert hasattr(config, "yaml_config")
         print("✅ Configuration loads successfully")
 
 
@@ -95,9 +99,9 @@ class TestConfigurationLoading:
         config = get_config()
 
         assert config is not None
-        assert hasattr(config, 'get_llm_config')
-        assert hasattr(config, 'get_rag_config')
-        assert hasattr(config, 'yaml_config')
+        assert hasattr(config, "get_llm_config")
+        assert hasattr(config, "get_rag_config")
+        assert hasattr(config, "yaml_config")
         print("✅ Configuration loaded")
 
     def test_rag_config_has_required_fields(self):
@@ -108,11 +112,11 @@ class TestConfigurationLoading:
         rag_config = config.get_rag_config()
 
         required_fields = [
-            'use_reranking',
-            'use_bm25',
-            'confidence_threshold',
-            'min_datasets',
-            'max_datasets'
+            "use_reranking",
+            "use_bm25",
+            "confidence_threshold",
+            "min_datasets",
+            "max_datasets",
         ]
 
         for field in required_fields:
@@ -128,7 +132,7 @@ class TestConfigurationLoading:
         llm_config = config.get_llm_config()
 
         # Check that config returns expected fields
-        required_fields = ['provider', 'model', 'temperature', 'max_tokens']
+        required_fields = ["provider", "model", "temperature", "max_tokens"]
         for field in required_fields:
             assert field in llm_config, f"Missing field: {field}"
 

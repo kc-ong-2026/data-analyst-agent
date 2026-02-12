@@ -12,18 +12,15 @@ NOTE: These are TRUE unit tests with mocked LLM calls for fast execution (< 100m
 All external dependencies (LLM, RAG, file I/O) are mocked.
 """
 
-import pytest
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pandas as pd
-from pathlib import Path
-from typing import Dict, Any
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import json
+import pytest
 
 from tests.utils.test_helpers import (
-    create_mock_rag_service,
-    generate_income_data,
-    create_temp_csv_file,
     assert_dict_contains_keys,
+    generate_income_data,
 )
 
 
@@ -37,7 +34,7 @@ def create_mock_llm_response(content: str):
 def create_mock_retrieval_result(
     num_datasets: int = 1,
     scores: list = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a mock RAG retrieval result."""
     if scores is None:
         scores = [0.85] * num_datasets
@@ -77,17 +74,21 @@ class TestRAGRetrieval:
     @pytest.mark.asyncio
     async def test_rag_search_returns_datasets(self, mock_graph_state):
         """Test that RAG search returns relevant datasets."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
         mock_llm_responses = [
-            create_mock_llm_response("""{"category": "income", "required_context": "income data"}"""),
-            create_mock_llm_response("""{"extracted": [{"year": 2020, "age_group": "25-34", "average_income": 4500}]}"""),
+            create_mock_llm_response(
+                """{"category": "income", "required_context": "income data"}"""
+            ),
+            create_mock_llm_response(
+                """{"extracted": [{"year": 2020, "age_group": "25-34", "average_income": 4500}]}"""
+            ),
         ]
 
-        with patch.object(DataExtractionAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataExtractionAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = mock_llm_responses
 
             agent = DataExtractionAgent(config, None)
@@ -107,12 +108,12 @@ class TestRAGRetrieval:
     @pytest.mark.asyncio
     async def test_category_detection_from_query(self, mock_graph_state):
         """Test category extraction from query."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
-        with patch.object(DataExtractionAgent, '_invoke_llm', new_callable=AsyncMock):
+        with patch.object(DataExtractionAgent, "_invoke_llm", new_callable=AsyncMock):
             agent = DataExtractionAgent(config, None)
 
             state = mock_graph_state.copy()
@@ -127,12 +128,12 @@ class TestRAGRetrieval:
     @pytest.mark.asyncio
     async def test_year_filtering(self, mock_graph_state):
         """Test that year filtering is applied in queries."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
-        with patch.object(DataExtractionAgent, '_invoke_llm', new_callable=AsyncMock):
+        with patch.object(DataExtractionAgent, "_invoke_llm", new_callable=AsyncMock):
             agent = DataExtractionAgent(config, None)
 
             state = mock_graph_state.copy()
@@ -156,7 +157,11 @@ class TestConfidenceBasedSelection:
         """Test that top-scoring dataset is always loaded."""
         # This tests the logical principle that top dataset is always included
         dataset_results = [
-            {"dataset_name": "income_2020", "score": 0.45, "file_path": "/path1"},  # Below threshold
+            {
+                "dataset_name": "income_2020",
+                "score": 0.45,
+                "file_path": "/path1",
+            },  # Below threshold
             {"dataset_name": "income_2021", "score": 0.40, "file_path": "/path2"},
         ]
 
@@ -181,7 +186,11 @@ class TestConfidenceBasedSelection:
         dataset_results = [
             {"dataset_name": "income_2020", "score": 0.85, "file_path": "/path1"},
             {"dataset_name": "income_2021", "score": 0.75, "file_path": "/path2"},
-            {"dataset_name": "income_2019", "score": 0.40, "file_path": "/path3"},  # Below threshold
+            {
+                "dataset_name": "income_2019",
+                "score": 0.40,
+                "file_path": "/path3",
+            },  # Below threshold
         ]
 
         confidence_threshold = 0.5
@@ -203,7 +212,7 @@ class TestConfidenceBasedSelection:
     def test_respects_min_max_dataset_limits(self):
         """Test that min/max dataset limits are respected."""
         dataset_results = [
-            {"dataset_name": f"dataset_{i}", "score": 0.9 - i*0.05, "file_path": f"/path{i}"}
+            {"dataset_name": f"dataset_{i}", "score": 0.9 - i * 0.05, "file_path": f"/path{i}"}
             for i in range(10)
         ]
 
@@ -254,10 +263,9 @@ class TestDataFrameLoading:
     @pytest.mark.asyncio
     async def test_loads_csv_file(self):
         """Test loading CSV file into DataFrame (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
 
-        with patch('builtins.open', create=True) as mock_open:
-            with patch('pandas.read_csv') as mock_read_csv:
+        with patch("builtins.open", create=True) as mock_open:
+            with patch("pandas.read_csv") as mock_read_csv:
                 # Create test DataFrame
                 df = generate_income_data(num_rows=10)
                 mock_read_csv.return_value = df
@@ -270,9 +278,8 @@ class TestDataFrameLoading:
     @pytest.mark.asyncio
     async def test_loads_excel_file(self):
         """Test loading Excel file into DataFrame (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
 
-        with patch('pandas.read_excel') as mock_read_excel:
+        with patch("pandas.read_excel") as mock_read_excel:
             # Create test DataFrame
             df = generate_income_data(num_rows=10)
             mock_read_excel.return_value = df
@@ -284,14 +291,15 @@ class TestDataFrameLoading:
     @pytest.mark.asyncio
     async def test_serializes_dataframe_correctly(self):
         """Test DataFrame serialization to JSON-compatible format."""
-        from app.services.agents.extraction import DataExtractionAgent
 
         # Create test DataFrame
-        df = pd.DataFrame({
-            "year": [2020, 2021],
-            "value": [100, 200],
-            "category": ["A", "B"],
-        })
+        df = pd.DataFrame(
+            {
+                "year": [2020, 2021],
+                "value": [100, 200],
+                "category": ["A", "B"],
+            }
+        )
 
         # Create a mock serialized format (matching expected structure)
         serialized = {
@@ -306,8 +314,7 @@ class TestDataFrameLoading:
 
         # Check structure
         assert_dict_contains_keys(
-            serialized,
-            ["dataset_name", "columns", "dtypes", "data", "source"]
+            serialized, ["dataset_name", "columns", "dtypes", "data", "source"]
         )
 
         assert serialized["source"] == "dataframe"
@@ -318,7 +325,6 @@ class TestDataFrameLoading:
     @pytest.mark.asyncio
     async def test_handles_large_dataframe(self):
         """Test handling of large DataFrame (sampling with mocks)."""
-        from app.services.agents.extraction import DataExtractionAgent
 
         # Create large DataFrame
         df = generate_income_data(num_rows=10000)
@@ -345,8 +351,8 @@ class TestFallbackMechanism:
     @pytest.mark.asyncio
     async def test_falls_back_to_file_search(self, mock_graph_state):
         """Test fallback when RAG is unavailable."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
         # No DB session - should trigger fallback
@@ -367,8 +373,6 @@ class TestFallbackMechanism:
     @pytest.mark.asyncio
     async def test_file_search_with_keywords(self):
         """Test file-based search with keyword matching (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
-        from pathlib import Path
 
         # Mock Path.glob to return mock files
         mock_files = [
@@ -377,7 +381,7 @@ class TestFallbackMechanism:
             MagicMock(name="employment_2020.csv"),
         ]
 
-        with patch('pathlib.Path.glob') as mock_glob:
+        with patch("pathlib.Path.glob") as mock_glob:
             mock_glob.return_value = mock_files
 
             # Simulated file search results
@@ -398,18 +402,20 @@ class TestColumnFiltering:
     @pytest.mark.asyncio
     async def test_filters_relevant_columns(self):
         """Test that irrelevant columns are filtered out (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
         # Create DataFrame with mixed columns
-        df = pd.DataFrame({
-            "year": [2020, 2021],
-            "average_income": [4000, 4500],
-            "random_id": [123, 456],  # Irrelevant
-            "internal_code": ["A", "B"],  # Irrelevant
-        })
+        df = pd.DataFrame(
+            {
+                "year": [2020, 2021],
+                "average_income": [4000, 4500],
+                "random_id": [123, 456],  # Irrelevant
+                "internal_code": ["A", "B"],  # Irrelevant
+            }
+        )
 
         query = "average income by year"
 
@@ -418,7 +424,7 @@ class TestColumnFiltering:
             """{"relevant_columns": ["year", "average_income"]}"""
         )
 
-        with patch.object(DataExtractionAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataExtractionAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_llm_response
 
             agent = DataExtractionAgent(config, None)
@@ -438,12 +444,12 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_missing_file(self, mock_graph_state):
         """Test handling of missing dataset file (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
-        with patch('pandas.read_csv') as mock_read:
+        with patch("pandas.read_csv") as mock_read:
             mock_read.side_effect = FileNotFoundError("File not found")
 
             agent = DataExtractionAgent(config, None)
@@ -460,7 +466,7 @@ class TestErrorHandling:
         from app.services.agents.extraction import DataExtractionAgent
 
         # Mock pandas read_csv to simulate corrupted data
-        with patch('pandas.read_csv') as mock_read:
+        with patch("pandas.read_csv") as mock_read:
             mock_read.side_effect = ValueError("Mismatched columns")
 
             agent = DataExtractionAgent(None, None)
@@ -477,8 +483,8 @@ class TestStatePassingAndMetadata:
     @pytest.mark.asyncio
     async def test_includes_metadata_in_response(self, mock_graph_state):
         """Test that response includes metadata (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
@@ -486,7 +492,7 @@ class TestStatePassingAndMetadata:
             """{"metadata": {"datasets": ["income_2020"], "confidence": 0.85}}"""
         )
 
-        with patch.object(DataExtractionAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(DataExtractionAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_llm_response
 
             agent = DataExtractionAgent(config, None)
@@ -519,13 +525,13 @@ class TestStatePassingAndMetadata:
     @pytest.mark.asyncio
     async def test_to_graph_state_includes_extracted_data(self, mock_graph_state):
         """Test that to_graph_state includes extracted data (mocked)."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
         from app.services.agents.base_agent import AgentResponse
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
 
-        with patch.object(DataExtractionAgent, '_invoke_llm', new_callable=AsyncMock):
+        with patch.object(DataExtractionAgent, "_invoke_llm", new_callable=AsyncMock):
             agent = DataExtractionAgent(config, None)
 
             state = mock_graph_state.copy()

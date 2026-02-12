@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
 from pydantic import Field
@@ -13,12 +13,12 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # API Keys
-    openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
-    anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
-    google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    google_api_key: str | None = Field(default=None, alias="GOOGLE_API_KEY")
 
     # Database configuration
-    database_url: Optional[str] = Field(default=None, alias="DATABASE_URL")
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
 
     # Server configuration
     host: str = Field(default="0.0.0.0", alias="HOST")
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 
-def load_yaml_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+def load_yaml_config(config_path: str | None = None) -> dict[str, Any]:
     """Load YAML configuration file."""
     if config_path is None:
         config_path = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -41,7 +41,7 @@ def load_yaml_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     if not config_path.exists():
         return {}
 
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -52,7 +52,7 @@ class AppConfig:
         self.settings = Settings()
         self.yaml_config = load_yaml_config()
 
-    def get_llm_config(self, provider: Optional[str] = None) -> Dict[str, Any]:
+    def get_llm_config(self, provider: str | None = None) -> dict[str, Any]:
         """Get LLM configuration for a specific provider."""
         # Get default provider from YAML, fallback to openai
         yaml_llm = self.yaml_config.get("llm", {})
@@ -65,18 +65,20 @@ class AppConfig:
         default_models = {
             "openai": "gpt-4-turbo-preview",
             "anthropic": "claude-sonnet-4-5-20250929",
-            "google": "gemini-pro"
+            "google": "gemini-pro",
         }
 
         return {
             "provider": provider,
-            "model": llm_config.get("default_model", default_models.get(provider, "gpt-4-turbo-preview")),
+            "model": llm_config.get(
+                "default_model", default_models.get(provider, "gpt-4-turbo-preview")
+            ),
             "temperature": llm_config.get("temperature", 0.7),
             "max_tokens": llm_config.get("max_tokens", 4096),
             "available_models": llm_config.get("models", []),
         }
 
-    def get_embedding_config(self, provider: Optional[str] = None) -> Dict[str, Any]:
+    def get_embedding_config(self, provider: str | None = None) -> dict[str, Any]:
         """Get embedding configuration for a specific provider."""
         # Get default provider from YAML, fallback to openai
         yaml_embeddings = self.yaml_config.get("embeddings", {})
@@ -86,34 +88,39 @@ class AppConfig:
         embed_config = yaml_embeddings.get("providers", {}).get(provider, {})
 
         # Hardcoded fallback models per provider
-        default_models = {
-            "openai": "text-embedding-3-small",
-            "google": "models/embedding-001"
-        }
+        default_models = {"openai": "text-embedding-3-small", "google": "models/embedding-001"}
 
         return {
             "provider": provider,
-            "model": embed_config.get("default_model", default_models.get(provider, "text-embedding-3-small")),
+            "model": embed_config.get(
+                "default_model", default_models.get(provider, "text-embedding-3-small")
+            ),
             "dimensions": embed_config.get("dimensions", 1536),
             "available_models": embed_config.get("models", []),
         }
 
-    def get_vector_store_config(self) -> Dict[str, Any]:
+    def get_vector_store_config(self) -> dict[str, Any]:
         """Get vector store configuration."""
-        return self.yaml_config.get("vector_store", {
-            "type": "chroma",
-            "persist_directory": "./data/vector_store",
-            "collection_name": "govtech_data",
-        })
+        return self.yaml_config.get(
+            "vector_store",
+            {
+                "type": "chroma",
+                "persist_directory": "./data/vector_store",
+                "collection_name": "govtech_data",
+            },
+        )
 
-    def get_langgraph_config(self) -> Dict[str, Any]:
+    def get_langgraph_config(self) -> dict[str, Any]:
         """Get LangGraph configuration."""
-        return self.yaml_config.get("langgraph", {
-            "max_iterations": 10,
-            "recursion_limit": 25,
-        })
+        return self.yaml_config.get(
+            "langgraph",
+            {
+                "max_iterations": 10,
+                "recursion_limit": 25,
+            },
+        )
 
-    def get_database_config(self) -> Dict[str, Any]:
+    def get_database_config(self) -> dict[str, Any]:
         """Get database configuration."""
         db_config = self.yaml_config.get("database", {})
         return {
@@ -123,7 +130,7 @@ class AppConfig:
             "echo": db_config.get("echo", False),
         }
 
-    def get_rag_config(self) -> Dict[str, Any]:
+    def get_rag_config(self) -> dict[str, Any]:
         """Get RAG configuration with reranking and BM25 settings."""
         rag_config = self.yaml_config.get("rag", {})
         return {
@@ -134,22 +141,21 @@ class AppConfig:
             "hybrid_top_k": rag_config.get("hybrid_top_k", 10),
             "rrf_k": rag_config.get("rrf_k", 60),
             "similarity_threshold": rag_config.get("similarity_threshold", 0.8),
-
             # Reranking config
             "use_reranking": rag_config.get("use_reranking", True),
-            "reranker_model": rag_config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+            "reranker_model": rag_config.get(
+                "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            ),
             "reranker_batch_size": rag_config.get("reranker_batch_size", 32),
-
             # BM25 config
             "use_bm25": rag_config.get("use_bm25", True),
-
             # Dataset selection config
             "confidence_threshold": rag_config.get("confidence_threshold", 0.5),
             "min_datasets": rag_config.get("min_datasets", 1),
             "max_datasets": rag_config.get("max_datasets", 3),
         }
 
-    def get_fallback_config(self) -> Dict[str, Any]:
+    def get_fallback_config(self) -> dict[str, Any]:
         """
         Get LLM fallback configuration with sensible defaults.
 
@@ -206,7 +212,7 @@ class AppConfig:
         # Deep merge fallback config with defaults
         return self._deep_merge(defaults, fallback_config)
 
-    def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    def _deep_merge(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         """
         Deep merge two dictionaries, with override taking precedence.
 
@@ -225,7 +231,7 @@ class AppConfig:
                 result[key] = value
         return result
 
-    def get_api_key(self, provider: str) -> Optional[str]:
+    def get_api_key(self, provider: str) -> str | None:
         """Get API key for a specific provider."""
         key_map = {
             "openai": self.settings.openai_api_key,
@@ -234,7 +240,7 @@ class AppConfig:
         }
         return key_map.get(provider)
 
-    def get_langsmith_config(self) -> Dict[str, Any]:
+    def get_langsmith_config(self) -> dict[str, Any]:
         """Get LangSmith tracing configuration."""
         langsmith_config = self.yaml_config.get("langsmith", {})
 

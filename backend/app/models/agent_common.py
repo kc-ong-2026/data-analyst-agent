@@ -1,7 +1,7 @@
 """Common models shared across multiple agents."""
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -55,15 +55,11 @@ class OrchestrationMetadata(BaseModel):
     """Metadata about the orchestration workflow execution."""
 
     iterations: int = Field(..., ge=0, description="Number of orchestration iterations")
-    workflow_plan: List[Dict[str, Any]] = Field(
+    workflow_plan: list[dict[str, Any]] = Field(
         default_factory=list, description="Workflow plan steps"
     )
-    agents_used: List[str] = Field(
-        default_factory=list, description="List of agents invoked"
-    )
-    validation_failed: bool = Field(
-        default=False, description="Whether validation failed"
-    )
-    validation_details: Optional[Dict[str, Any]] = Field(
+    agents_used: list[str] = Field(default_factory=list, description="List of agents invoked")
+    validation_failed: bool = Field(default=False, description="Whether validation failed")
+    validation_details: dict[str, Any] | None = Field(
         default=None, description="Details about validation failure"
     )

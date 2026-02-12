@@ -10,13 +10,6 @@ Tests the verification agent's ability to:
 """
 
 import pytest
-from typing import Dict, Any
-from unittest.mock import Mock, AsyncMock, patch
-
-from tests.utils.test_helpers import (
-    create_mock_llm,
-    assert_dict_contains_keys,
-)
 
 
 @pytest.mark.unit
@@ -26,8 +19,8 @@ class TestTopicValidation:
     @pytest.mark.asyncio
     async def test_valid_income_query(self, mock_graph_state):
         """Test that income queries are validated as valid."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -49,8 +42,8 @@ class TestTopicValidation:
     @pytest.mark.asyncio
     async def test_valid_employment_query(self, mock_graph_state):
         """Test that employment queries with dimensions are validated as valid."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -71,8 +64,8 @@ class TestTopicValidation:
     @pytest.mark.asyncio
     async def test_invalid_off_topic_query(self, mock_graph_state):
         """Test that off-topic queries are rejected."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -87,13 +80,17 @@ class TestTopicValidation:
         validation = response.data.get("validation", {})
         assert validation["valid"] is False
         assert validation["topic_valid"] is False
-        assert "employment" in validation.get("reason", "").lower() or "income" in validation.get("reason", "").lower() or "hours" in validation.get("reason", "").lower()
+        assert (
+            "employment" in validation.get("reason", "").lower()
+            or "income" in validation.get("reason", "").lower()
+            or "hours" in validation.get("reason", "").lower()
+        )
 
     @pytest.mark.asyncio
     async def test_valid_hours_worked_query(self, mock_graph_state):
         """Test that hours worked queries are validated."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -118,8 +115,8 @@ class TestYearExtraction:
     @pytest.mark.asyncio
     async def test_single_year_extraction(self, mock_graph_state):
         """Test extraction of single year from query."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -141,8 +138,8 @@ class TestYearExtraction:
     @pytest.mark.asyncio
     async def test_year_range_extraction(self, mock_graph_state):
         """Test extraction of year range from query."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -165,8 +162,8 @@ class TestYearExtraction:
     @pytest.mark.asyncio
     async def test_missing_year_triggers_pause(self, mock_graph_state):
         """Test that missing year specification triggers pause."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -186,8 +183,8 @@ class TestYearExtraction:
     @pytest.mark.asyncio
     async def test_multiple_years_extraction(self, mock_graph_state):
         """Test extraction of multiple explicit years."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -215,8 +212,8 @@ class TestDimensionValidation:
     @pytest.mark.asyncio
     async def test_employment_with_dimension(self, mock_graph_state):
         """Test employment query with proper dimension."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -238,8 +235,8 @@ class TestDimensionValidation:
     @pytest.mark.asyncio
     async def test_employment_missing_dimension_triggers_pause(self, mock_graph_state):
         """Test that employment query without dimension triggers pause."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -262,8 +259,8 @@ class TestYearAvailability:
     @pytest.mark.asyncio
     async def test_available_year_passes(self, mock_graph_state):
         """Test that available year passes validation (unit test - no DB access)."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -283,8 +280,8 @@ class TestYearAvailability:
     @pytest.mark.asyncio
     async def test_unavailable_year_triggers_pause(self, mock_graph_state):
         """Test that queries without years trigger missing year flag."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -309,8 +306,8 @@ class TestValidationResultStructure:
     @pytest.mark.asyncio
     async def test_validation_result_has_required_fields(self, mock_graph_state):
         """Test that validation result has all required fields."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -335,8 +332,8 @@ class TestValidationResultStructure:
     @pytest.mark.asyncio
     async def test_pause_reason_provided_when_pausing(self, mock_graph_state):
         """Test that pause reason is provided when should_pause is True."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -362,8 +359,8 @@ class TestAgentStatePassing:
     @pytest.mark.asyncio
     async def test_to_graph_state_includes_validation(self, mock_graph_state):
         """Test that to_graph_state includes validation results."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -384,8 +381,8 @@ class TestAgentStatePassing:
     @pytest.mark.asyncio
     async def test_agent_updates_messages(self, mock_graph_state):
         """Test that agent adds AI message to state."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -411,8 +408,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_query(self, mock_graph_state):
         """Test handling of empty query."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -433,8 +430,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_very_long_query(self, mock_graph_state):
         """Test handling of very long query."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -455,8 +452,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_special_characters_in_query(self, mock_graph_state):
         """Test handling of special characters."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)

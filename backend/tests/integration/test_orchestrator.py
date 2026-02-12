@@ -6,10 +6,8 @@ Fast and deterministic - no real LLM API calls.
 """
 
 import pytest
-from typing import Dict, Any
-from unittest.mock import Mock, AsyncMock, patch
 
-from tests.utils.test_helpers import PerformanceTimer, assert_dict_contains_keys
+from tests.utils.test_helpers import PerformanceTimer
 
 
 @pytest.mark.integration
@@ -71,11 +69,13 @@ class TestOrchestratorInitialization:
     def test_orchestrator_can_be_imported(self):
         """Test that orchestrator module can be imported."""
         from app.services.agents.orchestrator import AgentOrchestrator
+
         assert AgentOrchestrator is not None
 
     def test_get_orchestrator_function_exists(self):
         """Test that get_orchestrator helper exists."""
         from app.services.agents import get_orchestrator
+
         assert callable(get_orchestrator)
 
 
@@ -90,8 +90,8 @@ class TestAgentStateManagement:
 
         state = AgentState()
         assert state is not None
-        assert hasattr(state, 'messages')
-        assert hasattr(state, 'metadata')
+        assert hasattr(state, "messages")
+        assert hasattr(state, "metadata")
 
     def test_agent_state_add_message(self):
         """Test adding messages to AgentState."""
@@ -111,8 +111,8 @@ class TestAgentInitialization:
 
     def test_verification_agent_initializes(self):
         """Test verification agent initialization."""
-        from app.services.agents.verification import QueryVerificationAgent
         from app.config import get_config
+        from app.services.agents.verification import QueryVerificationAgent
 
         config = get_config()
         agent = QueryVerificationAgent(config)
@@ -122,8 +122,8 @@ class TestAgentInitialization:
 
     def test_coordinator_agent_initializes(self):
         """Test coordinator agent initialization."""
-        from app.services.agents.coordinator import DataCoordinatorAgent
         from app.config import get_config
+        from app.services.agents.coordinator import DataCoordinatorAgent
 
         config = get_config()
         agent = DataCoordinatorAgent(config)
@@ -133,8 +133,8 @@ class TestAgentInitialization:
 
     def test_extraction_agent_initializes(self):
         """Test extraction agent initialization."""
-        from app.services.agents.extraction import DataExtractionAgent
         from app.config import get_config
+        from app.services.agents.extraction import DataExtractionAgent
 
         config = get_config()
         agent = DataExtractionAgent(config)
@@ -144,8 +144,8 @@ class TestAgentInitialization:
 
     def test_analytics_agent_initializes(self):
         """Test analytics agent initialization."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
         agent = AnalyticsAgent(config)

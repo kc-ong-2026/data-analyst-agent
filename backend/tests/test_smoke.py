@@ -21,11 +21,11 @@ def test_import_config():
 def test_import_agents():
     """Test that all agents can be imported."""
     from app.services.agents import (
-        QueryVerificationAgent,
+        AgentOrchestrator,
+        AnalyticsAgent,
         DataCoordinatorAgent,
         DataExtractionAgent,
-        AnalyticsAgent,
-        AgentOrchestrator,
+        QueryVerificationAgent,
     )
 
     assert QueryVerificationAgent is not None
@@ -38,9 +38,9 @@ def test_import_agents():
 def test_import_base_classes():
     """Test that base classes can be imported."""
     from app.services.agents import (
-        BaseAgent,
-        AgentState,
         AgentResponse,
+        AgentState,
+        BaseAgent,
         GraphState,
     )
 
@@ -53,8 +53,9 @@ def test_import_base_classes():
 @pytest.mark.asyncio
 async def test_agent_state_creation():
     """Test that AgentState can be created and converted."""
-    from app.services.agents import AgentState
     from langchain_core.messages import HumanMessage
+
+    from app.services.agents import AgentState
 
     state = AgentState()
     state.current_task = "test task"
@@ -92,6 +93,7 @@ def test_rag_service_import():
     """Test that RAG service can be imported."""
     try:
         from app.services.rag_service import RAGService
+
         assert RAGService is not None
     except ImportError:
         # RAG service might not exist yet

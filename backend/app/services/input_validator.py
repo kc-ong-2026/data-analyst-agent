@@ -1,11 +1,12 @@
 """Input validation service for checkpoint resumption."""
 
 import re
-from typing import Dict, Any, Optional, Tuple
+from typing import Any
 
 
 class InputValidationError(Exception):
     """Exception raised when user input validation fails."""
+
     pass
 
 
@@ -14,9 +15,8 @@ class InputValidator:
 
     @staticmethod
     def validate_year_input(
-        user_input: Dict[str, Any],
-        available_years: Dict[str, Dict[str, int]]
-    ) -> Tuple[bool, Optional[Dict[str, int]], Optional[str]]:
+        user_input: dict[str, Any], available_years: dict[str, dict[str, int]]
+    ) -> tuple[bool, dict[str, int] | None, str | None]:
         """
         Validate user-provided year input.
 
@@ -56,8 +56,8 @@ class InputValidator:
 
         # Extract years using regex (same as verification agent)
         year_patterns = [
-            r'\b(19\d{2}|20[0-4]\d)\b',  # Single year
-            r'\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until)\s*(19\d{2}|20[0-4]\d)\b',  # Range
+            r"\b(19\d{2}|20[0-4]\d)\b",  # Single year
+            r"\b(19\d{2}|20[0-4]\d)\s*(?:to|-|through|until)\s*(19\d{2}|20[0-4]\d)\b",  # Range
         ]
 
         years_found = []
@@ -71,7 +71,11 @@ class InputValidator:
                         years_found.append(int(match))
 
         if not years_found:
-            return False, None, f"Could not parse year from '{year_str}'. Please provide a valid year (e.g., 2020 or 2018-2022)"
+            return (
+                False,
+                None,
+                f"Could not parse year from '{year_str}'. Please provide a valid year (e.g., 2020 or 2018-2022)",
+            )
 
         # Parse year range
         min_year = min(years_found)

@@ -13,13 +13,14 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Any
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ with open(TEST_CONFIG_PATH) as f:
 # Session-scoped fixtures (expensive setup, reused across tests)
 # ============================================================================
 
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Create event loop for async tests."""
@@ -47,7 +49,7 @@ def event_loop():
 
 
 @pytest.fixture(scope="session")
-def test_config() -> Dict[str, Any]:
+def test_config() -> dict[str, Any]:
     """Load test configuration."""
     return TEST_CONFIG
 
@@ -60,8 +62,7 @@ async def test_db_engine():
     Uses separate test database to avoid polluting production data.
     """
     db_url = os.getenv(
-        "TEST_DATABASE_URL",
-        "postgresql+asyncpg://govtech:govtech_dev@postgres:5432/govtech_rag"
+        "TEST_DATABASE_URL", "postgresql+asyncpg://govtech:govtech_dev@postgres:5432/govtech_rag"
     )
 
     engine = create_async_engine(
@@ -83,15 +84,13 @@ async def setup_test_database(test_db_engine, request):
     For evaluation tests: Creates schema but preserves data (populated by ingest_test_data)
     For unit tests: Drops and recreates schema for isolation
     """
-    from app.db.models import Base
     from sqlalchemy import text
+
     import app.db.session as db_session
+    from app.db.models import Base
 
     # Check if we're running evaluation tests
-    is_evaluation = any(
-        'evaluation' in str(item.fspath)
-        for item in request.session.items
-    )
+    is_evaluation = any("evaluation" in str(item.fspath) for item in request.session.items)
 
     async with test_db_engine.begin() as conn:
         if not is_evaluation:
@@ -106,21 +105,33 @@ async def setup_test_database(test_db_engine, request):
 
         # Create indexes if they don't exist (IVFFlat requires data to exist first)
         try:
-            await conn.execute(text("""
+            await conn.execute(
+                text(
+                    """
                 CREATE INDEX IF NOT EXISTS idx_employment_embedding
                 ON employment_dataset_metadata
                 USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
-            """))
-            await conn.execute(text("""
+            """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
                 CREATE INDEX IF NOT EXISTS idx_income_embedding
                 ON income_dataset_metadata
                 USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
-            """))
-            await conn.execute(text("""
+            """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
                 CREATE INDEX IF NOT EXISTS idx_hours_embedding
                 ON hours_worked_dataset_metadata
                 USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
-            """))
+            """
+                )
+            )
         except Exception as e:
             # Indexes might fail if no data exists yet, that's okay
             logger.warning(f"Could not create vector indexes (may not have data yet): {e}")
@@ -150,6 +161,7 @@ async def setup_test_database(test_db_engine, request):
 # Function-scoped fixtures (fresh state for each test)
 # ============================================================================
 
+
 @pytest.fixture
 async def async_db_session(
     test_db_engine, setup_test_database
@@ -166,10 +178,9 @@ async def async_db_session(
         expire_on_commit=False,
     )
 
-    async with async_session_factory() as session:
-        async with session.begin():
-            yield session
-            # Rollback happens automatically when context exits
+    async with async_session_factory() as session, session.begin():
+        yield session
+        # Rollback happens automatically when context exits
 
 
 @pytest.fixture(scope="session")
@@ -181,7 +192,8 @@ async def ingest_test_data(setup_test_database, test_db_engine):
     Uses same ingestion logic as production startup.
     """
     from sqlalchemy import text
-    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from app.services.ingestion.data_processor import DataProcessor
     from app.services.ingestion.embedding_generator import EmbeddingGenerator
 
@@ -195,13 +207,13 @@ async def ingest_test_data(setup_test_database, test_db_engine):
     async with async_session_factory() as session:
         try:
             # Check if data already exists
-            result = await session.execute(
-                text("SELECT COUNT(*) FROM employment_dataset_metadata")
-            )
+            result = await session.execute(text("SELECT COUNT(*) FROM employment_dataset_metadata"))
             count = result.scalar()
 
             if count > 0:
-                logger.info(f"Test data already exists ({count} employment datasets), skipping ingestion")
+                logger.info(
+                    f"Test data already exists ({count} employment datasets), skipping ingestion"
+                )
                 return
 
             logger.info("No test data found, running ingestion...")
@@ -228,7 +240,7 @@ async def ingest_test_data(setup_test_database, test_db_engine):
 
 
 @pytest.fixture
-async def sample_datasets(async_db_session: AsyncSession, ingest_test_data) -> Dict[str, Any]:
+async def sample_datasets(async_db_session: AsyncSession, ingest_test_data) -> dict[str, Any]:
     """
     Provide sample datasets for evaluation tests.
 
@@ -237,9 +249,7 @@ async def sample_datasets(async_db_session: AsyncSession, ingest_test_data) -> D
     from sqlalchemy import text
 
     # Query counts from all metadata tables
-    result = await async_db_session.execute(
-        text("SELECT COUNT(*) FROM income_dataset_metadata")
-    )
+    result = await async_db_session.execute(text("SELECT COUNT(*) FROM income_dataset_metadata"))
     income_count = result.scalar()
 
     result = await async_db_session.execute(
@@ -257,8 +267,7 @@ async def sample_datasets(async_db_session: AsyncSession, ingest_test_data) -> D
     if total_count == 0:
         # This should rarely happen now that we have auto-ingestion
         pytest.skip(
-            "No datasets found in database after ingestion. "
-            "Check ingestion logs for errors."
+            "No datasets found in database after ingestion. " "Check ingestion logs for errors."
         )
 
     return {
@@ -277,21 +286,25 @@ def mock_rag_service() -> Mock:
     Returns deterministic results without database or embedding calls.
     """
     mock_service = Mock()
-    mock_service.search_datasets = AsyncMock(return_value=[
-        {
-            "dataset_name": "income_from_work_2020",
-            "description": "Average income from work by sex and age group in 2020",
-            "score": 0.85,
-            "file_path": "/path/to/income_2020.csv",
+    mock_service.search_datasets = AsyncMock(
+        return_value=[
+            {
+                "dataset_name": "income_from_work_2020",
+                "description": "Average income from work by sex and age group in 2020",
+                "score": 0.85,
+                "file_path": "/path/to/income_2020.csv",
+            }
+        ]
+    )
+    mock_service.get_dataset_metadata = AsyncMock(
+        return_value={
+            "name": "income_from_work_2020",
+            "description": "Income data",
+            "columns": ["age_group", "sex", "average_income"],
+            "years": [2020],
+            "categories": ["income"],
         }
-    ])
-    mock_service.get_dataset_metadata = AsyncMock(return_value={
-        "name": "income_from_work_2020",
-        "description": "Income data",
-        "columns": ["age_group", "sex", "average_income"],
-        "years": [2020],
-        "categories": ["income"],
-    })
+    )
     return mock_service
 
 
@@ -303,12 +316,10 @@ def mock_llm() -> Mock:
     Returns pre-defined responses without actual API calls.
     """
     mock_llm = Mock()
-    mock_llm.invoke = Mock(return_value=Mock(
-        content="Mocked LLM response for testing purposes."
-    ))
-    mock_llm.ainvoke = AsyncMock(return_value=Mock(
-        content="Mocked LLM response for testing purposes."
-    ))
+    mock_llm.invoke = Mock(return_value=Mock(content="Mocked LLM response for testing purposes."))
+    mock_llm.ainvoke = AsyncMock(
+        return_value=Mock(content="Mocked LLM response for testing purposes.")
+    )
     return mock_llm
 
 
@@ -342,8 +353,9 @@ def mock_agents():
 
     Returns realistic responses based on agent type without LLM calls.
     """
+    from unittest.mock import Mock
+
     from tests.fixtures.mock_llm_responses import get_mock_llm_response
-    from unittest.mock import Mock, AsyncMock
 
     class MockAgent:
         def __init__(self, agent_type: str):
@@ -356,7 +368,11 @@ def mock_agents():
 
             # Return mock response object
             response = Mock()
-            response.success = response_data.get("success", True) if "success" in response_data else not response_data.get("error")
+            response.success = (
+                response_data.get("success", True)
+                if "success" in response_data
+                else not response_data.get("error")
+            )
             response.data = response_data
             response.message = response_data.get("message", "")
             return response
@@ -370,7 +386,7 @@ def mock_agents():
 
 
 @pytest.fixture
-def sample_queries(test_config: Dict[str, Any]) -> Dict[str, List[Dict]]:
+def sample_queries(test_config: dict[str, Any]) -> dict[str, list[dict]]:
     """
     Load sample test queries from JSON fixture.
 
@@ -388,7 +404,7 @@ def sample_queries(test_config: Dict[str, Any]) -> Dict[str, List[Dict]]:
 
 
 @pytest.fixture
-def ground_truth_contexts(test_config: Dict[str, Any]) -> Dict[str, Any]:
+def ground_truth_contexts(test_config: dict[str, Any]) -> dict[str, Any]:
     """Load ground truth contexts for retrieval evaluation."""
     contexts_file = TEST_DIR / test_config["fixtures"]["contexts_file"]
     if contexts_file.exists():
@@ -398,7 +414,7 @@ def ground_truth_contexts(test_config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @pytest.fixture
-def ground_truth_answers(test_config: Dict[str, Any]) -> Dict[str, Any]:
+def ground_truth_answers(test_config: dict[str, Any]) -> dict[str, Any]:
     """Load ground truth answers for generation evaluation."""
     answers_file = TEST_DIR / test_config["fixtures"]["answers_file"]
     if answers_file.exists():
@@ -411,8 +427,9 @@ def ground_truth_answers(test_config: Dict[str, Any]) -> Dict[str, Any]:
 # Evaluation tool fixtures
 # ============================================================================
 
+
 @pytest.fixture(scope="session")
-def ragas_evaluator(test_config: Dict[str, Any]):
+def ragas_evaluator(test_config: dict[str, Any]):
     """
     Provide Ragas evaluator instance.
 
@@ -422,11 +439,12 @@ def ragas_evaluator(test_config: Dict[str, Any]):
         pytest.skip("Ragas evaluation disabled in test config")
 
     from tests.utils.ragas_evaluator import RagasEvaluator
+
     return RagasEvaluator(test_config["ragas"])
 
 
 @pytest.fixture(scope="session")
-def bertscore_evaluator(test_config: Dict[str, Any]):
+def bertscore_evaluator(test_config: dict[str, Any]):
     """
     Provide BERTScore evaluator instance.
 
@@ -436,11 +454,12 @@ def bertscore_evaluator(test_config: Dict[str, Any]):
         pytest.skip("BERTScore evaluation disabled in test config")
 
     from tests.utils.bertscore_evaluator import BERTScoreEvaluator
+
     return BERTScoreEvaluator(test_config["bertscore"])
 
 
 @pytest.fixture
-def llm_judge(test_config: Dict[str, Any]):
+def llm_judge(test_config: dict[str, Any]):
     """
     Provide LLM as judge evaluator.
 
@@ -450,12 +469,14 @@ def llm_judge(test_config: Dict[str, Any]):
         pytest.skip("LLM judge evaluation disabled in test config")
 
     from tests.utils.llm_judge import LLMJudge
+
     return LLMJudge(test_config["llm_judge"])
 
 
 # ============================================================================
 # Helper fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def temp_dataset_file(tmp_path: Path) -> Path:
@@ -476,18 +497,16 @@ def temp_dataset_file(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-async def mock_graph_state() -> Dict[str, Any]:
+async def mock_graph_state() -> dict[str, Any]:
     """
     Provide mock GraphState for agent testing.
 
     Returns minimal valid state for agent execution.
     """
-    from langchain_core.messages import HumanMessage, AIMessage
+    from langchain_core.messages import HumanMessage
 
     return {
-        "messages": [
-            HumanMessage(content="What was the average income in 2020?")
-        ],
+        "messages": [HumanMessage(content="What was the average income in 2020?")],
         "current_task": "data_extraction",
         "query": "What was the average income in 2020?",
         "extracted_data": {},  # Dict, not list
@@ -509,7 +528,7 @@ async def mock_graph_state() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def mock_table_schemas() -> List[Dict[str, Any]]:
+def mock_table_schemas() -> list[dict[str, Any]]:
     """
     Provide mock table schemas for extraction agent testing.
 
@@ -522,7 +541,11 @@ def mock_table_schemas() -> List[Dict[str, Any]]:
             "columns": [
                 {"name": "age_group", "type": "VARCHAR", "description": "Age group category"},
                 {"name": "sex", "type": "VARCHAR", "description": "Gender"},
-                {"name": "average_income", "type": "NUMERIC", "description": "Average monthly income"},
+                {
+                    "name": "average_income",
+                    "type": "NUMERIC",
+                    "description": "Average monthly income",
+                },
             ],
             "file_path": "/path/to/income_2020.csv",
             "score": 0.87,
@@ -530,7 +553,7 @@ def mock_table_schemas() -> List[Dict[str, Any]]:
                 "year": 2020,
                 "category": "income",
                 "source": "Ministry of Manpower",
-            }
+            },
         }
     ]
 
@@ -539,20 +562,12 @@ def mock_table_schemas() -> List[Dict[str, Any]]:
 # Pytest hooks and configuration
 # ============================================================================
 
+
 def pytest_configure(config):
     """Configure pytest with custom markers and settings."""
-    config.addinivalue_line(
-        "markers",
-        "slow: mark test as slow (deselect with '-m \"not slow\"')"
-    )
-    config.addinivalue_line(
-        "markers",
-        "requires_llm: mark test as requiring LLM API calls"
-    )
-    config.addinivalue_line(
-        "markers",
-        "requires_db: mark test as requiring database"
-    )
+    config.addinivalue_line("markers", "slow: mark test as slow (deselect with '-m \"not slow\"')")
+    config.addinivalue_line("markers", "requires_llm: mark test as requiring LLM API calls")
+    config.addinivalue_line("markers", "requires_db: mark test as requiring database")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -599,6 +614,7 @@ def reset_singletons():
 # Utility functions for tests
 # ============================================================================
 
+
 @pytest.fixture
 def assert_similarity():
     """
@@ -606,11 +622,12 @@ def assert_similarity():
 
     Useful for comparing LLM outputs with expected results.
     """
+
     def _assert_similarity(text1: str, text2: str, threshold: float = 0.8):
         """Assert two texts are semantically similar."""
         from sentence_transformers import SentenceTransformer, util
 
-        model = SentenceTransformer('all-MiniLM-L6-v2')
+        model = SentenceTransformer("all-MiniLM-L6-v2")
         emb1 = model.encode(text1, convert_to_tensor=True)
         emb2 = model.encode(text2, convert_to_tensor=True)
         similarity = util.cos_sim(emb1, emb2).item()

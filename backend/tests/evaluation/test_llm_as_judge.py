@@ -13,7 +13,6 @@ Tests validate judge consistency, discrimination, and threshold adherence.
 """
 
 import pytest
-from typing import List, Dict, Any
 
 
 @pytest.mark.evaluation
@@ -31,8 +30,8 @@ class TestLLMJudgeAccuracy:
         sample_datasets,
     ):
         """Test LLM judge evaluation of analytics agent responses."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         from app.config import get_config
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         config = get_config()
         orchestrator = AgentOrchestrator(config, async_db_session)
@@ -71,21 +70,15 @@ class TestLLMJudgeAccuracy:
 
         # Calculate averages
         avg_overall = sum(j.overall_score for j in judgments) / len(judgments)
-        avg_accuracy = sum(
-            j.criteria_scores['accuracy'].score for j in judgments
-        ) / len(judgments)
+        avg_accuracy = sum(j.criteria_scores["accuracy"].score for j in judgments) / len(judgments)
 
-        print(f"\n=== LLM Judge Summary ===")
+        print("\n=== LLM Judge Summary ===")
         print(f"Average Overall: {avg_overall:.2f}/5.0")
         print(f"Average Accuracy: {avg_accuracy:.2f}/5.0")
 
         # Check thresholds
-        assert avg_overall >= 3.5, (
-            f"Average overall score {avg_overall:.2f} below threshold 3.5"
-        )
-        assert avg_accuracy >= 4.0, (
-            f"Average accuracy score {avg_accuracy:.2f} below threshold 4.0"
-        )
+        assert avg_overall >= 3.5, f"Average overall score {avg_overall:.2f} below threshold 3.5"
+        assert avg_accuracy >= 4.0, f"Average accuracy score {avg_accuracy:.2f} below threshold 4.0"
 
     @pytest.mark.asyncio
     async def test_judge_evaluates_code_quality(
@@ -103,16 +96,18 @@ class TestLLMJudgeAccuracy:
         state = {
             "query": "Calculate average income by age group",
             "messages": [],
-            "extracted_data": [{
-                "dataset_name": "income_2020",
-                "columns": ["age_group", "average_income"],
-                "dtypes": {"age_group": "object", "average_income": "float64"},
-                "data": [
-                    {"age_group": "25-34", "average_income": 4500.0},
-                    {"age_group": "35-44", "average_income": 5800.0},
-                ],
-                "source": "dataframe",
-            }],
+            "extracted_data": [
+                {
+                    "dataset_name": "income_2020",
+                    "columns": ["age_group", "average_income"],
+                    "dtypes": {"age_group": "object", "average_income": "float64"},
+                    "data": [
+                        {"age_group": "25-34", "average_income": 4500.0},
+                        {"age_group": "35-44", "average_income": 5800.0},
+                    ],
+                    "source": "dataframe",
+                }
+            ],
         }
 
         response = await agent.execute(state)
@@ -131,7 +126,7 @@ class TestLLMJudgeAccuracy:
         print(f"\nCode Quality Score: {judgment.criteria_scores['code_quality'].score:.2f}/5.0")
 
         # Code should be reasonably good
-        assert judgment.criteria_scores['code_quality'].score >= 3.0
+        assert judgment.criteria_scores["code_quality"].score >= 3.0
 
     @pytest.mark.asyncio
     async def test_judge_evaluates_explanation_quality(
@@ -141,8 +136,8 @@ class TestLLMJudgeAccuracy:
         sample_datasets,
     ):
         """Test LLM judge evaluation of natural language explanations."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         from app.config import get_config
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         config = get_config()
         orchestrator = AgentOrchestrator(config, async_db_session)
@@ -168,8 +163,8 @@ class TestLLMJudgeAccuracy:
             print(f"Completeness: {judgment.criteria_scores['completeness'].score:.2f}/5.0")
 
             # Explanations should be clear and complete
-            assert judgment.criteria_scores['clarity'].score >= 3.0
-            assert judgment.criteria_scores['completeness'].score >= 3.0
+            assert judgment.criteria_scores["clarity"].score >= 3.0
+            assert judgment.criteria_scores["completeness"].score >= 3.0
 
         except Exception as e:
             pytest.skip(f"Error: {e}")
@@ -206,9 +201,9 @@ class TestJudgeConsistency:
         print(f"Variance: {score_variance:.2f}")
 
         # Scores should be relatively consistent (within 0.5 points)
-        assert score_variance <= 0.5, (
-            f"Score variance {score_variance:.2f} too high - judge inconsistent"
-        )
+        assert (
+            score_variance <= 0.5
+        ), f"Score variance {score_variance:.2f} too high - judge inconsistent"
 
     @pytest.mark.asyncio
     async def test_judge_consistency_across_criteria(self, llm_judge):
@@ -229,8 +224,8 @@ class TestJudgeConsistency:
                 criteria=["accuracy", "completeness"],
             )
 
-            accuracy_scores.append(judgment.criteria_scores['accuracy'].score)
-            completeness_scores.append(judgment.criteria_scores['completeness'].score)
+            accuracy_scores.append(judgment.criteria_scores["accuracy"].score)
+            completeness_scores.append(judgment.criteria_scores["completeness"].score)
 
         # Check variance for each criterion
         accuracy_variance = max(accuracy_scores) - min(accuracy_scores)
@@ -242,7 +237,9 @@ class TestJudgeConsistency:
         # Individual criteria should be reasonably consistent
         # Relax threshold to 1.0 to account for LLM non-determinism
         assert accuracy_variance <= 1.0, f"Accuracy variance {accuracy_variance} too high"
-        assert completeness_variance <= 1.0, f"Completeness variance {completeness_variance} too high"
+        assert (
+            completeness_variance <= 1.0
+        ), f"Completeness variance {completeness_variance} too high"
 
 
 @pytest.mark.evaluation
@@ -264,9 +261,7 @@ class TestJudgeDiscrimination:
         )
 
         # Poor response: vague, incomplete, somewhat incorrect
-        poor_answer = (
-            "Income was around $5,000 or so. People earned money."
-        )
+        poor_answer = "Income was around $5,000 or so. People earned money."
 
         # Evaluate both
         good_judgment = llm_judge.evaluate(
@@ -286,9 +281,9 @@ class TestJudgeDiscrimination:
         print(f"Difference: {(good_judgment.overall_score - poor_judgment.overall_score):.2f}")
 
         # Good response should score significantly higher
-        assert good_judgment.overall_score > poor_judgment.overall_score + 0.5, (
-            "Judge failed to distinguish quality levels"
-        )
+        assert (
+            good_judgment.overall_score > poor_judgment.overall_score + 0.5
+        ), "Judge failed to distinguish quality levels"
 
     @pytest.mark.asyncio
     async def test_judge_detects_inaccuracies(self, llm_judge):
@@ -315,13 +310,17 @@ class TestJudgeDiscrimination:
             context=context,
         )
 
-        print(f"\nAccurate answer accuracy: {accurate_judgment.criteria_scores['accuracy'].score:.2f}/5.0")
-        print(f"Inaccurate answer accuracy: {inaccurate_judgment.criteria_scores['accuracy'].score:.2f}/5.0")
+        print(
+            f"\nAccurate answer accuracy: {accurate_judgment.criteria_scores['accuracy'].score:.2f}/5.0"
+        )
+        print(
+            f"Inaccurate answer accuracy: {inaccurate_judgment.criteria_scores['accuracy'].score:.2f}/5.0"
+        )
 
         # Accurate answer should have much higher accuracy score
         assert (
-            accurate_judgment.criteria_scores['accuracy'].score >
-            inaccurate_judgment.criteria_scores['accuracy'].score + 1.0
+            accurate_judgment.criteria_scores["accuracy"].score
+            > inaccurate_judgment.criteria_scores["accuracy"].score + 1.0
         ), "Judge failed to detect inaccuracy"
 
     @pytest.mark.asyncio
@@ -352,13 +351,17 @@ class TestJudgeDiscrimination:
             context=context,
         )
 
-        print(f"\nComplete answer completeness: {complete_judgment.criteria_scores['completeness'].score:.2f}/5.0")
-        print(f"Incomplete answer completeness: {incomplete_judgment.criteria_scores['completeness'].score:.2f}/5.0")
+        print(
+            f"\nComplete answer completeness: {complete_judgment.criteria_scores['completeness'].score:.2f}/5.0"
+        )
+        print(
+            f"Incomplete answer completeness: {incomplete_judgment.criteria_scores['completeness'].score:.2f}/5.0"
+        )
 
         # Complete answer should score higher on completeness
         assert (
-            complete_judgment.criteria_scores['completeness'].score >
-            incomplete_judgment.criteria_scores['completeness'].score + 1.0
+            complete_judgment.criteria_scores["completeness"].score
+            > incomplete_judgment.criteria_scores["completeness"].score + 1.0
         ), "Judge failed to detect incompleteness"
 
 
@@ -390,7 +393,7 @@ class TestJudgePairwiseComparison:
         print(f"Answer B score: {comparison['answer_b_score']:.2f}")
 
         # Should pick a winner or declare tie
-        assert comparison['winner'] in ['A', 'B', 'Tie']
+        assert comparison["winner"] in ["A", "B", "Tie"]
 
     @pytest.mark.asyncio
     async def test_comparison_prefers_more_complete_answer(self, llm_judge):
@@ -414,9 +417,7 @@ class TestJudgePairwiseComparison:
         print(f"\nWinner: {comparison['winner']}")
 
         # Should prefer the more complete answer
-        assert comparison['winner'] in ['A', 'Tie'], (
-            "Should prefer more complete answer A"
-        )
+        assert comparison["winner"] in ["A", "Tie"], "Should prefer more complete answer A"
 
 
 @pytest.mark.evaluation
@@ -441,15 +442,11 @@ class TestJudgeWithGroundTruth:
 
         # Test various quality levels
         test_answers = [
-            {
-                "answer": ground_truth,
-                "expected_min_score": 4.0,
-                "label": "Ground truth"
-            },
+            {"answer": ground_truth, "expected_min_score": 4.0, "label": "Ground truth"},
             {
                 "answer": "Income was around some amount.",
                 "expected_max_score": 3.0,
-                "label": "Vague answer"
+                "label": "Vague answer",
             },
         ]
 
@@ -465,13 +462,13 @@ class TestJudgeWithGroundTruth:
 
             # Check expectations
             if "expected_min_score" in test:
-                assert judgment.overall_score >= test["expected_min_score"], (
-                    f"{test['label']} scored too low"
-                )
+                assert (
+                    judgment.overall_score >= test["expected_min_score"]
+                ), f"{test['label']} scored too low"
             if "expected_max_score" in test:
-                assert judgment.overall_score <= test["expected_max_score"], (
-                    f"{test['label']} scored too high"
-                )
+                assert (
+                    judgment.overall_score <= test["expected_max_score"]
+                ), f"{test['label']} scored too high"
 
 
 @pytest.mark.evaluation
@@ -489,8 +486,8 @@ class TestJudgeThresholds:
         sample_datasets,
     ):
         """Test that system responses meet judge quality thresholds."""
-        from app.services.agents.orchestrator import AgentOrchestrator
         from app.config import get_config
+        from app.services.agents.orchestrator import AgentOrchestrator
 
         config = get_config()
         orchestrator = AgentOrchestrator(config, async_db_session)
@@ -526,7 +523,9 @@ class TestJudgeThresholds:
                     print(f"✅ Query passed: {query[:50]}...")
                 else:
                     print(f"❌ Query failed: {query[:50]}...")
-                    print(f"   Overall: {judgment.overall_score:.2f} (threshold: {thresholds.get('overall_score', 3.5)})")
+                    print(
+                        f"   Overall: {judgment.overall_score:.2f} (threshold: {thresholds.get('overall_score', 3.5)})"
+                    )
 
             except Exception as e:
                 print(f"Error: {e}")
@@ -536,7 +535,7 @@ class TestJudgeThresholds:
             pytest.skip("No responses evaluated")
 
         pass_rate = passed / total
-        print(f"\n=== Quality Threshold Results ===")
+        print("\n=== Quality Threshold Results ===")
         print(f"Passed: {passed}/{total} ({pass_rate:.1%})")
 
         # Should have reasonable pass rate
@@ -568,7 +567,7 @@ class TestJudgeCriteria:
                 criteria=["accuracy"],
             )
 
-            accuracy_score = judgment.criteria_scores['accuracy'].score
+            accuracy_score = judgment.criteria_scores["accuracy"].score
 
             if test["should_pass"]:
                 assert accuracy_score >= 4.0, "Accurate answer scored too low"
@@ -584,12 +583,12 @@ class TestJudgeCriteria:
             {
                 "answer": "The average income is $4,500 per month, calculated across all age groups.",
                 "should_pass": True,
-                "label": "Clear"
+                "label": "Clear",
             },
             {
                 "answer": "umm so like income is kinda around some number maybe $4500 ish idk",
                 "should_pass": False,
-                "label": "Unclear"
+                "label": "Unclear",
             },
         ]
 
@@ -600,7 +599,7 @@ class TestJudgeCriteria:
                 criteria=["clarity"],
             )
 
-            clarity_score = judgment.criteria_scores['clarity'].score
+            clarity_score = judgment.criteria_scores["clarity"].score
             print(f"\n{test['label']} clarity: {clarity_score:.2f}/5.0")
 
             if test["should_pass"]:

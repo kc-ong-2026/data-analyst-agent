@@ -12,22 +12,22 @@ All tests use mocked database operations and realistic mock search results.
 No real database queries are executed.
 """
 
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from typing import List, Dict, Any
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from tests.utils.test_helpers import (
     assert_score_in_range,
-    assert_dict_contains_keys,
 )
-
 
 # ============================================================================
 # Mock Data Fixtures
 # ============================================================================
 
+
 @pytest.fixture
-def mock_metadata_results() -> List[Dict[str, Any]]:
+def mock_metadata_results() -> list[dict[str, Any]]:
     """Create realistic mock metadata results."""
     return [
         {
@@ -44,7 +44,7 @@ def mock_metadata_results() -> List[Dict[str, Any]]:
             "row_count": 48,
             "year_range": {"min": 2020, "max": 2020},
             "summary_text": "This dataset contains income statistics for Singapore in 2020, "
-                          "broken down by age group and gender.",
+            "broken down by age group and gender.",
             "score": 0.92,
         },
         {
@@ -61,7 +61,7 @@ def mock_metadata_results() -> List[Dict[str, Any]]:
             "row_count": 24,
             "year_range": {"min": 2020, "max": 2020},
             "summary_text": "Employment data for Singapore in 2020, including employment rates "
-                          "and unemployment rates by age group.",
+            "and unemployment rates by age group.",
             "score": 0.78,
         },
         {
@@ -78,14 +78,14 @@ def mock_metadata_results() -> List[Dict[str, Any]]:
             "row_count": 60,
             "year_range": {"min": 2020, "max": 2020},
             "summary_text": "Working hours dataset for Singapore in 2020, showing average "
-                          "and median weekly hours by occupation.",
+            "and median weekly hours by occupation.",
             "score": 0.65,
         },
     ]
 
 
 @pytest.fixture
-def mock_vector_search_results() -> List[Dict[str, Any]]:
+def mock_vector_search_results() -> list[dict[str, Any]]:
     """Create mock vector search results."""
     return [
         {
@@ -113,7 +113,7 @@ def mock_vector_search_results() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def mock_bm25_search_results() -> List[Dict[str, Any]]:
+def mock_bm25_search_results() -> list[dict[str, Any]]:
     """Create mock BM25 search results."""
     return [
         {
@@ -140,8 +140,8 @@ class TestRAGVectorSearch:
     @pytest.mark.asyncio
     async def test_vector_search_returns_results(self, mock_vector_search_results):
         """Test that vector search returns relevant results using mocked database."""
-        from app.services.rag_service import RAGService
         from app.services.rag_models import MetadataResult
+        from app.services.rag_service import RAGService
 
         # Create mock RAG service
         rag_service = RAGService()
@@ -208,9 +208,9 @@ class TestRAGVectorSearch:
             if len(results) >= 2:
                 # Scores should be in descending order
                 scores = [r.score for r in results]
-                assert scores == sorted(scores, reverse=True), (
-                    "Results should be ordered by score descending"
-                )
+                assert scores == sorted(
+                    scores, reverse=True
+                ), "Results should be ordered by score descending"
 
     @pytest.mark.asyncio
     async def test_vector_search_empty_query(self):
@@ -236,8 +236,8 @@ class TestBM25Search:
     @pytest.mark.asyncio
     async def test_bm25_search_keyword_matching(self, mock_bm25_search_results):
         """Test that BM25 search performs good keyword matching (mocked)."""
-        from app.services.rag_service import RAGService
         from app.services.rag_models import MetadataResult
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -280,8 +280,8 @@ class TestBM25Search:
         self, mock_vector_search_results, mock_bm25_search_results
     ):
         """Test that BM25 and vector search can return different results."""
-        from app.services.rag_service import RAGService
         from app.services.rag_models import MetadataResult
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -289,7 +289,11 @@ class TestBM25Search:
         vector_mocks = [
             MetadataResult(
                 metadata_id=r["metadata_id"],
-                category="income" if r["metadata_id"] == 1 else "employment" if r["metadata_id"] == 2 else "hours",
+                category=(
+                    "income"
+                    if r["metadata_id"] == 1
+                    else "employment" if r["metadata_id"] == 2 else "hours"
+                ),
                 file_name=r["table_name"] + ".csv",
                 file_path=r["file_path"],
                 table_name=r["table_name"],
@@ -327,11 +331,10 @@ class TestBM25Search:
             for r in mock_bm25_search_results
         ]
 
-        with patch.object(
-            rag_service, "_folder_vector_search", new_callable=AsyncMock
-        ) as mock_vec, patch.object(
-            rag_service, "_folder_bm25_search", new_callable=AsyncMock
-        ) as mock_bm25:
+        with (
+            patch.object(rag_service, "_folder_vector_search", new_callable=AsyncMock) as mock_vec,
+            patch.object(rag_service, "_folder_bm25_search", new_callable=AsyncMock) as mock_bm25,
+        ):
             mock_vec.return_value = vector_mocks
             mock_bm25.return_value = bm25_mocks
 
@@ -344,9 +347,9 @@ class TestBM25Search:
 
             # Some overlap is expected
             overlap = len(vector_ids & bm25_ids)
-            assert overlap < len(vector_ids) or len(vector_ids) < len(bm25_ids), (
-                "BM25 and vector search can return different result rankings"
-            )
+            assert overlap < len(vector_ids) or len(vector_ids) < len(
+                bm25_ids
+            ), "BM25 and vector search can return different result rankings"
 
 
 @pytest.mark.unit
@@ -355,8 +358,8 @@ class TestRRFFusion:
 
     def test_rrf_fusion_combines_rankings(self):
         """Test that RRF correctly combines rankings from multiple sources."""
-        from app.services.rag_service import RAGService
         from app.services.rag_models import MetadataResult
+        from app.services.rag_service import RAGService
 
         # Mock results from vector and BM25 search
         vector_results = [
@@ -463,18 +466,14 @@ class TestRRFFusion:
 
         # Test RRF fusion
         rag_service = RAGService()
-        fused_results = rag_service._rrf_fuse_metadata(
-            vector_results, bm25_results, top_k=10
-        )
+        fused_results = rag_service._rrf_fuse_metadata(vector_results, bm25_results, top_k=10)
 
         # Check structure
         assert len(fused_results) <= 4, "Should combine unique results"
 
         # Items appearing in both lists should have higher scores
         metadata_ids = {r.metadata_id for r in fused_results}
-        assert 1 in metadata_ids or 2 in metadata_ids, (
-            "Should include items from both lists"
-        )
+        assert 1 in metadata_ids or 2 in metadata_ids, "Should include items from both lists"
 
         # Scores should be normalized
         for result in fused_results:
@@ -502,8 +501,8 @@ class TestCrossEncoderReranking:
     @pytest.mark.asyncio
     async def test_reranking_updates_scores(self, mock_metadata_results):
         """Test that reranking updates result scores."""
-        from app.services.rag_service import RAGService
         from app.services.rag_models import MetadataResult
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -564,9 +563,7 @@ class TestCrossEncoderReranking:
             ),
         ]
 
-        with patch.object(
-            rag_service, "_rerank_results", new_callable=AsyncMock
-        ) as mock_rerank:
+        with patch.object(rag_service, "_rerank_results", new_callable=AsyncMock) as mock_rerank:
             mock_rerank.return_value = reranked_results
 
             results = await mock_rerank("test query", input_results)
@@ -585,9 +582,7 @@ class TestCrossEncoderReranking:
 
         rag_service = RAGService()
 
-        with patch.object(
-            rag_service, "_rerank_results", new_callable=AsyncMock
-        ) as mock_rerank:
+        with patch.object(rag_service, "_rerank_results", new_callable=AsyncMock) as mock_rerank:
             mock_rerank.return_value = []
 
             results = await mock_rerank("test query", [])
@@ -597,8 +592,8 @@ class TestCrossEncoderReranking:
     @pytest.mark.asyncio
     async def test_reranking_respects_top_k(self):
         """Test that reranking respects top_k limit."""
-        from app.services.rag_service import RAGService
         from app.services.rag_models import MetadataResult
+        from app.services.rag_service import RAGService
 
         rag_service = RAGService()
 
@@ -626,9 +621,7 @@ class TestCrossEncoderReranking:
         # Mock reranker to return only top 3
         reranked_results = input_results[:3]
 
-        with patch.object(
-            rag_service, "_rerank_results", new_callable=AsyncMock
-        ) as mock_rerank:
+        with patch.object(rag_service, "_rerank_results", new_callable=AsyncMock) as mock_rerank:
             mock_rerank.return_value = reranked_results
 
             results = await mock_rerank("test query", input_results)
@@ -643,8 +636,8 @@ class TestHybridSearch:
     @pytest.mark.asyncio
     async def test_hybrid_search_pipeline(self, mock_metadata_results):
         """Test full hybrid search pipeline with mocked components."""
+        from app.services.rag_models import FolderRetrievalResult, MetadataResult
         from app.services.rag_service import RAGService
-        from app.services.rag_models import MetadataResult, FolderRetrievalResult
 
         rag_service = RAGService()
 
@@ -691,15 +684,15 @@ class TestHybridSearch:
                 assert result.score is not None
 
             # Top result should have reasonable score
-            assert results.metadata_results[0].score >= 0.5, (
-                "Top result should have reasonable confidence"
-            )
+            assert (
+                results.metadata_results[0].score >= 0.5
+            ), "Top result should have reasonable confidence"
 
     @pytest.mark.asyncio
     async def test_category_filter_affects_results(self):
         """Test that category filter narrows search results."""
+        from app.services.rag_models import FolderRetrievalResult, MetadataResult
         from app.services.rag_service import RAGService
-        from app.services.rag_models import MetadataResult, FolderRetrievalResult
 
         rag_service = RAGService()
 
@@ -754,8 +747,8 @@ class TestHybridSearch:
     @pytest.mark.asyncio
     async def test_year_filter_affects_results(self):
         """Test that year filter narrows search results."""
+        from app.services.rag_models import FolderRetrievalResult, MetadataResult
         from app.services.rag_service import RAGService
-        from app.services.rag_models import MetadataResult, FolderRetrievalResult
 
         rag_service = RAGService()
 
@@ -792,9 +785,7 @@ class TestHybridSearch:
                 total_results=len(filtered_results),
             )
 
-            results = await mock_retrieve(
-                "test query", year_filter={"start": 2020, "end": 2020}
-            )
+            results = await mock_retrieve("test query", year_filter={"start": 2020, "end": 2020})
             assert len(results.metadata_results) == 1
             assert results.metadata_results[0].year_range["min"] == 2020
 
@@ -818,7 +809,6 @@ class TestRAGServiceConfiguration:
     def test_rag_config_values(self):
         """Test RAG configuration has expected values."""
         from app.services.rag_service import RAGService
-        from app.config import config
 
         rag_service = RAGService()
 

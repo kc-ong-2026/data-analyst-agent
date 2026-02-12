@@ -9,9 +9,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from sqlalchemy import text
-from app.db.session import init_db, close_db, get_db
-from app.db.models import Base
+
 import app.db.session as db_session
+from app.db.models import Base
+from app.db.session import close_db, get_db, init_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -107,20 +108,28 @@ async def create_indexes():
             try:
                 # Create IVFFlat vector index for similarity search
                 logger.info(f"Creating vector index on {table_name}...")
-                await session.execute(text(f"""
+                await session.execute(
+                    text(
+                        f"""
                     CREATE INDEX IF NOT EXISTS {category}_embedding_idx
                     ON {table_name}
                     USING ivfflat (embedding vector_cosine_ops)
                     WITH (lists = 10)
-                """))
+                """
+                    )
+                )
 
                 # Create GIN index for full-text search
                 logger.info(f"Creating full-text search index on {table_name}...")
-                await session.execute(text(f"""
+                await session.execute(
+                    text(
+                        f"""
                     CREATE INDEX IF NOT EXISTS {category}_tsv_idx
                     ON {table_name}
                     USING gin(tsv)
-                """))
+                """
+                    )
+                )
 
                 await session.commit()
                 logger.info(f"✓ Indexes created for {table_name}")

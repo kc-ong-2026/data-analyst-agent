@@ -29,31 +29,28 @@ Usage:
     )
 """
 
-import asyncio
 import logging
 import time
+from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
 
 from langchain_core.messages import BaseMessage
 from tenacity import (
     AsyncRetrying,
-    retry_if_exception_type,
-    wait_exponential_jitter,
-    stop_after_attempt,
     RetryError,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
 )
 
+from app.config import get_config
 from app.services.llm_exceptions import (
-    TransientLLMError,
+    AllProvidersFailedError,
     PermanentLLMError,
     TokenLimitError,
-    CircuitBreakerOpenError,
-    AllProvidersFailedError,
+    TransientLLMError,
 )
 from app.services.llm_service import get_llm_service
-from app.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +110,7 @@ class CircuitBreaker:
         self.state = CircuitBreakerState.CLOSED
         self.failure_count = 0
         self.success_count = 0
-        self.last_failure_time: Optional[datetime] = None
+        self.last_failure_time: datetime | None = None
         self.half_open_calls = 0
 
     def can_execute(self) -> bool:
@@ -260,11 +257,11 @@ class ResilientLLMService:
         self.fallback_config = self.config.get_fallback_config()
 
         # Circuit breakers per provider
-        self.circuit_breakers: Dict[str, CircuitBreaker] = {}
+        self.circuit_breakers: dict[str, CircuitBreaker] = {}
         self._initialize_circuit_breakers()
 
         # Track attempted providers/models for error reporting
-        self.attempted_providers: List[Tuple[str, str]] = []
+        self.attempted_providers: list[tuple[str, str]] = []
 
     def _initialize_circuit_breakers(self):
         """Initialize circuit breakers for all configured providers."""
@@ -283,9 +280,9 @@ class ResilientLLMService:
 
     async def generate_with_fallback(
         self,
-        messages: List[BaseMessage],
-        primary_provider: Optional[str] = None,
-        primary_model: Optional[str] = None,
+        messages: list[BaseMessage],
+        primary_provider: str | None = None,
+        primary_model: str | None = None,
     ) -> str:
         """
         Generate LLM response with automatic retry and fallback.
@@ -352,7 +349,7 @@ class ResilientLLMService:
 
                     return response
 
-                except TransientLLMError as e:
+                except TransientLLMError:
                     # Retry exhausted for this model, try next model
                     self.attempted_providers.append((provider, model))
                     logger.warning(
@@ -361,7 +358,7 @@ class ResilientLLMService:
                     )
                     continue
 
-                except TokenLimitError as e:
+                except TokenLimitError:
                     # Token limit exceeded, try model with larger context
                     self.attempted_providers.append((provider, model))
                     logger.warning(
@@ -389,8 +386,7 @@ class ResilientLLMService:
                         self.circuit_breakers[provider].record_failure()
 
                     logger.error(
-                        f"[LLM UNKNOWN ERROR] provider={provider}, model={model} - "
-                        f"Error: {e}"
+                        f"[LLM UNKNOWN ERROR] provider={provider}, model={model} - " f"Error: {e}"
                     )
                     continue
 
@@ -404,7 +400,7 @@ class ResilientLLMService:
         self,
         provider: str,
         model: str,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
     ) -> str:
         """
         Execute LLM call with exponential backoff retry for transient errors.
@@ -481,7 +477,7 @@ class ResilientLLMService:
                 original_error=original_error,
             )
 
-    def _get_provider_chain(self, primary_provider: Optional[str]) -> List[str]:
+    def _get_provider_chain(self, primary_provider: str | None) -> list[str]:
         """
         Get provider fallback chain, with primary provider first.
 
@@ -491,11 +487,14 @@ class ResilientLLMService:
         Returns:
             List of provider names in fallback order
         """
-        provider_chain = self.fallback_config.get("provider_chain", [
-            "anthropic",
-            "openai",
-            "google",
-        ])
+        provider_chain = self.fallback_config.get(
+            "provider_chain",
+            [
+                "anthropic",
+                "openai",
+                "google",
+            ],
+        )
 
         # Move primary provider to front if specified
         if primary_provider and primary_provider in provider_chain:
@@ -508,8 +507,8 @@ class ResilientLLMService:
     def _get_model_chain(
         self,
         provider: str,
-        primary_model: Optional[str],
-    ) -> List[str]:
+        primary_model: str | None,
+    ) -> list[str]:
         """
         Get model fallback chain for provider, with primary model first.
 
@@ -546,7 +545,7 @@ class ResilientLLMService:
 
 
 # Singleton instance
-_resilient_llm_service: Optional[ResilientLLMService] = None
+_resilient_llm_service: ResilientLLMService | None = None
 
 
 def get_resilient_llm_service() -> ResilientLLMService:

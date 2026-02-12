@@ -9,18 +9,15 @@ Tests the analytics agent's ability to:
 - Generate natural language explanations
 """
 
-import pytest
-import pandas as pd
-import numpy as np
 from itertools import cycle
-from typing import Dict, Any
 from unittest.mock import AsyncMock, patch
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pytest
 
 from tests.utils.test_helpers import (
-    create_mock_llm,
-    generate_income_data,
-    assert_dict_contains_keys,
     assert_contains_keywords,
 )
 
@@ -109,24 +106,26 @@ class TestCodeGeneration:
     @pytest.mark.asyncio
     async def test_generates_valid_pandas_code(self, mock_graph_state):
         """Test that generated code is syntactically valid."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
         agent = AnalyticsAgent(config)
 
         state = mock_graph_state.copy()
         state["query"] = "Calculate average income by age group"
-        state["extracted_data"] = [{
-            "dataset_name": "income_2020",
-            "columns": ["age_group", "average_income"],
-            "dtypes": {"age_group": "object", "average_income": "float64"},
-            "data": [
-                {"age_group": "25-34", "average_income": 4500.0},
-                {"age_group": "35-44", "average_income": 5800.0},
-            ],
-            "source": "dataframe",
-        }]
+        state["extracted_data"] = [
+            {
+                "dataset_name": "income_2020",
+                "columns": ["age_group", "average_income"],
+                "dtypes": {"age_group": "object", "average_income": "float64"},
+                "data": [
+                    {"age_group": "25-34", "average_income": 4500.0},
+                    {"age_group": "35-44", "average_income": 5800.0},
+                ],
+                "source": "dataframe",
+            }
+        ]
 
         response = await agent.execute(state)
 
@@ -145,8 +144,8 @@ class TestCodeGeneration:
     @pytest.mark.asyncio
     async def test_code_contains_groupby_for_aggregation(self, mock_graph_state):
         """Test that aggregation queries generate groupby code."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
 
@@ -159,9 +158,11 @@ import numpy as np
 result = df.groupby('age_group')['average_income'].mean()
 ```"""
 
-        mock_explanation = "The average income by age group shows variation across different age categories."
+        mock_explanation = (
+            "The average income by age group shows variation across different age categories."
+        )
 
-        with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(AnalyticsAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             # Use cycle to handle multiple REACT loop calls
             mock_llm.side_effect = cycle([mock_code, mock_explanation])
 
@@ -189,8 +190,8 @@ result = df.groupby('age_group')['average_income'].mean()
     @pytest.mark.asyncio
     async def test_code_handles_multiple_dataframes(self, mock_graph_state):
         """Test code generation with multiple DataFrames."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
         agent = AnalyticsAgent(config)
@@ -344,16 +345,17 @@ class TestVisualization:
 
         plt.close(fig)
 
-
     @pytest.mark.asyncio
     async def test_creates_html_plotly_chart(self):
         """Test creating HTML Plotly chart."""
         from app.services.agents.analytics import AnalyticsAgent
 
-        df = pd.DataFrame({
-            "x": [1, 2, 3],
-            "y": [4, 5, 6],
-        })
+        df = pd.DataFrame(
+            {
+                "x": [1, 2, 3],
+                "y": [4, 5, 6],
+            }
+        )
 
         viz_spec = {
             "type": "bar",
@@ -392,8 +394,8 @@ class TestExplanation:
     @pytest.mark.asyncio
     async def test_generates_natural_language_explanation(self, mock_graph_state):
         """Test that explanation is generated."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
 
@@ -405,7 +407,7 @@ result = df['average_income'].mean()
 
         mock_explanation = "Based on the 2020 data, the average income was $4,500. This represents a typical income level for the period analyzed."
 
-        with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(AnalyticsAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = [mock_code, mock_explanation]
 
             agent = AnalyticsAgent(config)
@@ -433,8 +435,8 @@ result = df['average_income'].mean()
     @pytest.mark.asyncio
     async def test_explanation_includes_key_insights(self, mock_graph_state):
         """Test that explanation includes key insights from data."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
 
@@ -446,7 +448,7 @@ result = df['average_income'].mean()
 
         mock_explanation = "Based on the analysis, the average income in 2020 was $4,500, reflecting typical earnings during that year."
 
-        with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(AnalyticsAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             # Use cycle to handle multiple REACT loop calls
             mock_llm.side_effect = cycle([mock_code, mock_explanation])
 
@@ -475,21 +477,23 @@ result = df['average_income'].mean()
     @pytest.mark.asyncio
     async def test_chain_of_thought_reasoning(self, mock_graph_state):
         """Test that <thinking> tags are used for reasoning."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
         agent = AnalyticsAgent(config)
 
         state = mock_graph_state.copy()
         state["query"] = "Calculate average income"
-        state["extracted_data"] = [{
-            "dataset_name": "income_2020",
-            "columns": ["average_income"],
-            "dtypes": {"average_income": "float64"},
-            "data": [{"average_income": 4500.0}],
-            "source": "dataframe",
-        }]
+        state["extracted_data"] = [
+            {
+                "dataset_name": "income_2020",
+                "columns": ["average_income"],
+                "dtypes": {"average_income": "float64"},
+                "data": [{"average_income": 4500.0}],
+                "source": "dataframe",
+            }
+        ]
 
         response = await agent.execute(state)
 
@@ -506,13 +510,15 @@ class TestWorkflowSteps:
         """Test data preparation step."""
         from app.services.agents.analytics import AnalyticsAgent
 
-        serialized_data = [{
-            "dataset_name": "test",
-            "columns": ["a"],
-            "dtypes": {"a": "int64"},
-            "data": [{"a": 1}],
-            "source": "dataframe",
-        }]
+        serialized_data = [
+            {
+                "dataset_name": "test",
+                "columns": ["a"],
+                "dtypes": {"a": "int64"},
+                "data": [{"a": 1}],
+                "source": "dataframe",
+            }
+        ]
 
         dataframes = AnalyticsAgent._reconstruct_dataframes(serialized_data)
 
@@ -522,8 +528,8 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_generate_code_step(self, mock_graph_state):
         """Test code generation step."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
 
@@ -535,7 +541,7 @@ result = df['value'].sum()
 
         mock_explanation = "The sum of all values is 10."
 
-        with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+        with patch.object(AnalyticsAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = [mock_code, mock_explanation]
 
             agent = AnalyticsAgent(config)
@@ -570,7 +576,6 @@ result = df['value'].sum()
     @pytest.mark.asyncio
     async def test_explain_results_step(self):
         """Test results explanation step."""
-        from app.services.agents.analytics import AnalyticsAgent
 
         # This is typically done by LLM
         # Test that the method exists and can be called
@@ -584,8 +589,8 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_empty_extracted_data(self, mock_graph_state):
         """Test handling when no data is extracted."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
         agent = AnalyticsAgent(config)
@@ -602,8 +607,8 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_malformed_data(self, mock_graph_state):
         """Test handling of malformed data."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
         agent = AnalyticsAgent(config)
@@ -625,8 +630,8 @@ class TestAnalyticsAccuracy:
     @pytest.mark.asyncio
     async def test_code_correctness(self, sample_queries):
         """Test generated code correctness on sample queries."""
-        from app.services.agents.analytics import AnalyticsAgent
         from app.config import get_config
+        from app.services.agents.analytics import AnalyticsAgent
 
         config = get_config()
 
@@ -673,7 +678,7 @@ class TestAnalyticsAccuracy:
             mock_code = "\n".join(mock_code_lines)
             mock_explanation = f"Analysis result for: {test_case['query']}"
 
-            with patch.object(AnalyticsAgent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+            with patch.object(AnalyticsAgent, "_invoke_llm", new_callable=AsyncMock) as mock_llm:
                 # Always return code for REACT loop calls (it will call multiple times)
                 # Return code multiple times, then explanation at the end
                 mock_llm.side_effect = cycle([mock_code, mock_code, mock_code, mock_explanation])

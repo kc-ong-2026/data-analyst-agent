@@ -1,7 +1,5 @@
 """Models for the Query Verification Agent."""
 
-from typing import List, Optional
-
 from pydantic import BaseModel, Field
 
 from .agent_common import YearRange
@@ -10,21 +8,19 @@ from .agent_common import YearRange
 class DimensionCheckResult(BaseModel):
     """Result of dimension checking for employment queries."""
 
-    checked: bool = Field(
-        ..., description="Whether dimension checking was performed"
-    )
-    dimensions_found: List[str] = Field(
+    checked: bool = Field(..., description="Whether dimension checking was performed")
+    dimensions_found: list[str] = Field(
         default_factory=list,
         description="List of dimensions found in query (age, sex, industry, qualification)",
     )
-    dimension_suggestions: List[str] = Field(
+    dimension_suggestions: list[str] = Field(
         default_factory=list,
         description="Suggested dimensions user could specify",
     )
     dimensions_valid: bool = Field(
         default=True, description="Whether the dimensions specification is valid"
     )
-    reason: Optional[str] = Field(
+    reason: str | None = Field(
         default=None,
         description="Reason for dimension validation failure (if dimensions_valid=False)",
     )
@@ -36,10 +32,8 @@ class QueryValidationResult(BaseModel):
     valid: bool = Field(..., description="Overall validity of the query")
     topic_valid: bool = Field(..., description="Whether the topic is valid")
     reason: str = Field(..., description="Validation message or error reason")
-    years_found: bool = Field(
-        ..., description="Whether year/year range was found in query"
-    )
-    requested_years: Optional[YearRange] = Field(
+    years_found: bool = Field(..., description="Whether year/year range was found in query")
+    requested_years: YearRange | None = Field(
         default=None, description="Requested year range extracted from query"
     )
     missing_year: bool = Field(
@@ -53,14 +47,14 @@ class QueryValidationResult(BaseModel):
     years_available: bool = Field(
         default=True, description="Whether requested years are available in datasets"
     )
-    matching_categories: List[str] = Field(
+    matching_categories: list[str] = Field(
         default_factory=list,
         description="Categories that have data for requested years",
     )
     checked_availability: bool = Field(
         default=False, description="Whether year availability was checked"
     )
-    year_range: Optional[YearRange] = Field(
+    year_range: YearRange | None = Field(
         default=None, description="Deprecated - use requested_years instead"
     )
 

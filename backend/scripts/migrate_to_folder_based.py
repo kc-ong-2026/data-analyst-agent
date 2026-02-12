@@ -18,7 +18,7 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.config import config
@@ -26,8 +26,7 @@ from app.services.ingestion.data_processor import DataProcessor
 from app.services.ingestion.embedding_generator import EmbeddingGenerator
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -38,10 +37,12 @@ async def drop_old_schema(session: AsyncSession):
 
     # Get list of all raw_* tables
     result = await session.execute(
-        text("""
+        text(
+            """
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public' AND tablename LIKE 'raw_%'
-        """)
+        """
+        )
     )
     raw_tables = [row[0] for row in result.fetchall()]
 
@@ -140,7 +141,8 @@ async def verify_migration(session: AsyncSession):
 
     # Check for data tables
     result = await session.execute(
-        text("""
+        text(
+            """
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public'
             AND (tablename LIKE 'employment_%'
@@ -148,7 +150,8 @@ async def verify_migration(session: AsyncSession):
                  OR tablename LIKE 'income_%'
                  OR tablename LIKE 'labour_force_%')
             AND tablename NOT LIKE '%_metadata'
-        """)
+        """
+        )
     )
     data_tables = [row[0] for row in result.fetchall()]
     logger.info(f"Found {len(data_tables)} data tables")
@@ -174,9 +177,7 @@ async def main():
         return
 
     engine = create_async_engine(database_url, echo=False)
-    async_session = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     try:
         async with async_session() as session:

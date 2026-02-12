@@ -2,10 +2,10 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import END, StateGraph
 
 from app.models import (
     DatasetMetadata,
@@ -13,14 +13,15 @@ from app.models import (
     ExtractionResult,
     YearRange,
 )
+from app.services.data_service import data_service
+
 from ..base_agent import (
-    AgentRole,
     AgentResponse,
+    AgentRole,
     AgentState,
     BaseAgent,
     GraphState,
 )
-from app.services.data_service import data_service
 from .prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class DataExtractionAgent(BaseAgent):
             {
                 "extract": "extract_relevant_data",
                 "skip": "format_output",
-            }
+            },
         )
         workflow.add_edge("extract_relevant_data", "format_output")
         workflow.add_edge("format_output", END)
@@ -87,14 +88,16 @@ class DataExtractionAgent(BaseAgent):
     def _should_extract(self, state: GraphState) -> str:
         """Determine if we should extract data or skip to formatting."""
         loaded_data = state.get("intermediate_results", {}).get("loaded_datasets", {})
-        logger.info(f"SHOULD_EXTRACT: loaded_datasets keys={list(loaded_data.keys())}, count={len(loaded_data)}")
+        logger.info(
+            f"SHOULD_EXTRACT: loaded_datasets keys={list(loaded_data.keys())}, count={len(loaded_data)}"
+        )
         if loaded_data:
             logger.info("SHOULD_EXTRACT: routing to 'extract'")
             return "extract"
         logger.info("SHOULD_EXTRACT: routing to 'skip'")
         return "skip"
 
-    async def _retrieve_context_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _retrieve_context_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Retrieve relevant context using RAG (with file-based fallback)."""
         current_task = state.get("current_task", "")
         required_data = state.get("metadata", {}).get("required_data", [])
@@ -112,8 +115,10 @@ class DataExtractionAgent(BaseAgent):
         # Try RAG retrieval first
         try:
             from app.db.session import async_session_factory
+
             if async_session_factory is not None:
                 from app.services.rag_service import RAGService
+
                 rag_service = RAGService()
 
                 # Extract category filter from query for targeted search
@@ -123,7 +128,7 @@ class DataExtractionAgent(BaseAgent):
                 if category_filter:
                     logger.info(f"✓ Will search only {category_filter}_dataset_metadata")
                 else:
-                    logger.info(f"✗ No category detected - searching all tables")
+                    logger.info("✗ No category detected - searching all tables")
 
                 logger.info(f"Calling RAG with query: {search_query}")
                 retrieval_result = await rag_service.retrieve(
@@ -197,8 +202,8 @@ class DataExtractionAgent(BaseAgent):
         return await self._fallback_identify_datasets(state, current_task, step_task, required_data)
 
     async def _fallback_identify_datasets(
-        self, state: GraphState, current_task: str, step_task: str, required_data: List[str]
-    ) -> Dict[str, Any]:
+        self, state: GraphState, current_task: str, step_task: str, required_data: list[str]
+    ) -> dict[str, Any]:
         """Fallback: identify datasets using keyword matching on filenames."""
         available_datasets = data_service.get_available_datasets()
         keywords = self._extract_keywords(current_task, step_task, required_data)
@@ -215,10 +220,9 @@ class DataExtractionAgent(BaseAgent):
         matched_datasets = matched_datasets[:5]
 
         if not matched_datasets and available_datasets:
-            datasets_list = "\n".join([
-                f"- {ds['name']}: {ds['path']}"
-                for ds in available_datasets[:20]
-            ])
+            datasets_list = "\n".join(
+                [f"- {ds['name']}: {ds['path']}" for ds in available_datasets[:20]]
+            )
             identify_prompt = f"""Given this query, identify the most relevant datasets.
 
 Query: {current_task}
@@ -249,7 +253,7 @@ Respond with a JSON list of the most relevant dataset paths:
             },
         }
 
-    async def _load_dataframes_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _load_dataframes_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Load raw DataFrames from files based on RAG retrieval with confidence scoring."""
         retrieval_context = state.get("retrieval_context", {})
         intermediate = state.get("intermediate_results", {})
@@ -267,6 +271,7 @@ Respond with a JSON list of the most relevant dataset paths:
 
             # Get configuration for confidence-based selection
             from app.config import config
+
             rag_config = config.get_rag_config()
             confidence_threshold = rag_config.get("confidence_threshold", 0.5)
             min_datasets = rag_config.get("min_datasets", 1)
@@ -287,17 +292,25 @@ Respond with a JSON list of the most relevant dataset paths:
                 # Always include top result
                 if len(selected_schemas) == 0:
                     selected_schemas.append((schema, score))
-                    logger.info(f"✅ Loading top result: {schema.get('table_name')} (score={score:.3f})")
+                    logger.info(
+                        f"✅ Loading top result: {schema.get('table_name')} (score={score:.3f})"
+                    )
                 # Include others only if score is high enough
                 elif score >= confidence_threshold and len(selected_schemas) < max_datasets:
                     selected_schemas.append((schema, score))
-                    logger.info(f"✅ Loading confident result: {schema.get('table_name')} (score={score:.3f})")
+                    logger.info(
+                        f"✅ Loading confident result: {schema.get('table_name')} (score={score:.3f})"
+                    )
                 elif len(selected_schemas) < min_datasets:
                     # Guarantee min_datasets even if below threshold
                     selected_schemas.append((schema, score))
-                    logger.info(f"⚠️  Loading fallback result: {schema.get('table_name')} (score={score:.3f} below threshold)")
+                    logger.info(
+                        f"⚠️  Loading fallback result: {schema.get('table_name')} (score={score:.3f} below threshold)"
+                    )
                 else:
-                    logger.info(f"❌ Skipping low-confidence result: {schema.get('table_name')} (score={score:.3f})")
+                    logger.info(
+                        f"❌ Skipping low-confidence result: {schema.get('table_name')} (score={score:.3f})"
+                    )
 
             logger.info(
                 f"Selected {len(selected_schemas)} datasets out of {len(table_schemas)} candidates. "
@@ -329,7 +342,9 @@ Respond with a JSON list of the most relevant dataset paths:
                             "table_name": table_name,
                             "category": schema.get("category", ""),
                             "description": schema.get("description", ""),
-                            "summary_text": schema.get("summary_text", ""),  # Rich context about dataset
+                            "summary_text": schema.get(
+                                "summary_text", ""
+                            ),  # Rich context about dataset
                             "primary_dimensions": schema.get("primary_dimensions", []),
                             "numeric_columns": schema.get("numeric_columns", []),
                             "categorical_columns": schema.get("categorical_columns", []),
@@ -343,18 +358,26 @@ Respond with a JSON list of the most relevant dataset paths:
 
                     logger.info(f"Loaded DataFrame {table_name}: {df.shape} from {file_path}")
                 except FileNotFoundError as e:
-                    logger.warning(f"⚠️ Dataset file not found: {file_path} (skipping - database may need re-ingestion)")
+                    logger.warning(
+                        f"⚠️ Dataset file not found: {file_path} (skipping - database may need re-ingestion)"
+                    )
                     failed_loads.append((table_name, str(e)))
                 except Exception as e:
                     logger.error(f"Failed to load DataFrame from {file_path}: {e}", exc_info=True)
                     failed_loads.append((table_name, str(e)))
 
             # If selected datasets failed but we have more candidates, try loading fallbacks
-            if len(loaded_datasets) < min_datasets and failed_loads and len(selected_schemas) < len(table_schemas):
-                logger.info(f"Only loaded {len(loaded_datasets)}/{min_datasets} required datasets. Trying fallback datasets...")
+            if (
+                len(loaded_datasets) < min_datasets
+                and failed_loads
+                and len(selected_schemas) < len(table_schemas)
+            ):
+                logger.info(
+                    f"Only loaded {len(loaded_datasets)}/{min_datasets} required datasets. Trying fallback datasets..."
+                )
                 remaining_schemas = [
                     (schema, schema.get("score", 0.0))
-                    for schema in table_schemas[len(selected_schemas):max_datasets]
+                    for schema in table_schemas[len(selected_schemas) : max_datasets]
                 ]
 
                 for schema, score in remaining_schemas:
@@ -368,7 +391,9 @@ Respond with a JSON list of the most relevant dataset paths:
                         continue
 
                     try:
-                        logger.info(f"⚠️ Attempting fallback dataset: {table_name} (score={score:.3f})")
+                        logger.info(
+                            f"⚠️ Attempting fallback dataset: {table_name} (score={score:.3f})"
+                        )
                         df = data_service.load_dataset(file_path)
 
                         loaded_datasets[table_name] = {
@@ -380,7 +405,9 @@ Respond with a JSON list of the most relevant dataset paths:
                                 "table_name": table_name,
                                 "category": schema.get("category", ""),
                                 "description": schema.get("description", ""),
-                                "summary_text": schema.get("summary_text", ""),  # Rich context about dataset
+                                "summary_text": schema.get(
+                                    "summary_text", ""
+                                ),  # Rich context about dataset
                                 "primary_dimensions": schema.get("primary_dimensions", []),
                                 "numeric_columns": schema.get("numeric_columns", []),
                                 "categorical_columns": schema.get("categorical_columns", []),
@@ -429,8 +456,7 @@ Respond with a JSON list of the most relevant dataset paths:
             },
         }
 
-
-    async def _extract_relevant_data_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _extract_relevant_data_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Extract relevant data based on query context."""
         try:
             logger.info("EXTRACT_NODE: Starting extraction")
@@ -457,12 +483,14 @@ Respond with a JSON list of the most relevant dataset paths:
                         if not items:
                             return []
                         # Handle list of dicts with 'name' key or list of strings
-                        return [item.get('name', str(item)) if isinstance(item, dict) else str(item)
-                                for item in items]
+                        return [
+                            item.get("name", str(item)) if isinstance(item, dict) else str(item)
+                            for item in items
+                        ]
 
-                    primary_dims = get_names(metadata.get('primary_dimensions', []))
-                    numeric_cols = get_names(metadata.get('numeric_columns', []))
-                    categorical_cols = get_names(metadata.get('categorical_columns', []))
+                    primary_dims = get_names(metadata.get("primary_dimensions", []))
+                    numeric_cols = get_names(metadata.get("numeric_columns", []))
+                    categorical_cols = get_names(metadata.get("categorical_columns", []))
 
                     metadata_text = (
                         f"Description: {metadata.get('description', 'N/A')}\n"
@@ -485,9 +513,8 @@ Respond with a JSON list of the most relevant dataset paths:
             chunks = retrieval_context.get("chunks", [])
             if chunks:
                 chunk_texts = [c["chunk_text"] for c in chunks[:5]]
-                chunk_context = (
-                    "\n\nSemantic context from RAG retrieval:\n"
-                    + "\n---\n".join(chunk_texts)
+                chunk_context = "\n\nSemantic context from RAG retrieval:\n" + "\n---\n".join(
+                    chunk_texts
                 )
 
             extraction_prompt = f"""Given this query and available data, identify what to extract.
@@ -557,7 +584,7 @@ Respond in JSON format:
                 },
             }
 
-    async def _format_output_node(self, state: GraphState) -> Dict[str, Any]:
+    async def _format_output_node(self, state: GraphState) -> dict[str, Any]:
         """Node: Format extracted data for the analytics agent."""
         extracted = state.get("intermediate_results", {}).get("extracted_data", {})
         loaded = state.get("intermediate_results", {}).get("loaded_datasets", {})
@@ -565,8 +592,11 @@ Respond in JSON format:
 
         # Debug logging
         import logging
+
         logger = logging.getLogger(__name__)
-        logger.info(f"FORMAT OUTPUT: extracted keys={list(extracted.keys())}, loaded keys={list(loaded.keys())}")
+        logger.info(
+            f"FORMAT OUTPUT: extracted keys={list(extracted.keys())}, loaded keys={list(loaded.keys())}"
+        )
 
         final_data = extracted if extracted else loaded
         logger.info(f"FORMAT OUTPUT: final_data keys={list(final_data.keys())}")
@@ -580,9 +610,13 @@ Respond in JSON format:
 
                 # Indicate whether data comes from SQL results or metadata only
                 if row_count > 0:
-                    summary_parts.append(f"- {name}: {row_count} rows, {col_count} columns (source: {source_type})")
+                    summary_parts.append(
+                        f"- {name}: {row_count} rows, {col_count} columns (source: {source_type})"
+                    )
                 else:
-                    summary_parts.append(f"- {name}: metadata only, {col_count} columns (awaiting SQL results)")
+                    summary_parts.append(
+                        f"- {name}: metadata only, {col_count} columns (awaiting SQL results)"
+                    )
 
         summary = "\n".join(summary_parts) if summary_parts else "No data extracted"
         if source == "rag":
@@ -596,12 +630,10 @@ Respond in JSON format:
                 **state.get("intermediate_results", {}),
                 "extraction_summary": summary,
             },
-            "messages": [
-                AIMessage(content=f"Data extracted:\n{summary}")
-            ],
+            "messages": [AIMessage(content=f"Data extracted:\n{summary}")],
         }
 
-    def _extract_category_from_query(self, query: str) -> Optional[str]:
+    def _extract_category_from_query(self, query: str) -> str | None:
         """Extract category filter from query based on keywords.
 
         Args:
@@ -613,17 +645,27 @@ Respond in JSON format:
         query_lower = query.lower()
 
         # Check for category keywords (order matters - more specific first)
-        if any(keyword in query_lower for keyword in [
-            "employment", "employed", "unemployment", "job", "labour force", "labor force"
-        ]):
+        if any(
+            keyword in query_lower
+            for keyword in [
+                "employment",
+                "employed",
+                "unemployment",
+                "job",
+                "labour force",
+                "labor force",
+            ]
+        ):
             return "employment"
-        elif any(keyword in query_lower for keyword in [
-            "income", "salary", "wage", "earning", "pay", "compensation"
-        ]):
+        elif any(
+            keyword in query_lower
+            for keyword in ["income", "salary", "wage", "earning", "pay", "compensation"]
+        ):
             return "income"
-        elif any(keyword in query_lower for keyword in [
-            "hours worked", "working hours", "work hours", "overtime"
-        ]):
+        elif any(
+            keyword in query_lower
+            for keyword in ["hours worked", "working hours", "work hours", "overtime"]
+        ):
             return "hours_worked"
 
         # No specific category detected - search all categories
@@ -633,8 +675,8 @@ Respond in JSON format:
         self,
         task: str,
         step_task: str,
-        required_data: List[str],
-    ) -> List[str]:
+        required_data: list[str],
+    ) -> list[str]:
         """Extract search keywords from task and required data."""
         keywords = set()
 
@@ -648,9 +690,21 @@ Respond in JSON format:
                     keywords.add(word)
 
         data_terms = [
-            "employment", "income", "labour", "labor", "force",
-            "hours", "worked", "salary", "wage", "resident",
-            "weather", "temperature", "forecast", "pm2.5", "air",
+            "employment",
+            "income",
+            "labour",
+            "labor",
+            "force",
+            "hours",
+            "worked",
+            "salary",
+            "wage",
+            "resident",
+            "weather",
+            "temperature",
+            "forecast",
+            "pm2.5",
+            "air",
         ]
         for term in data_terms:
             if term in task.lower() or term in step_task.lower():
@@ -658,7 +712,7 @@ Respond in JSON format:
 
         return list(keywords)
 
-    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+    def _parse_json_response(self, response: str) -> dict[str, Any]:
         """Parse JSON from LLM response."""
         try:
             if "```json" in response:
@@ -683,7 +737,9 @@ Respond in JSON format:
         summary = result.get("intermediate_results", {}).get("extraction_summary", "")
         errors = result.get("errors", [])
 
-        logger.info(f"BUILD RESPONSE: extracted_data keys={list(extracted_data_dict.keys())}, errors={len(errors)}")
+        logger.info(
+            f"BUILD RESPONSE: extracted_data keys={list(extracted_data_dict.keys())}, errors={len(errors)}"
+        )
 
         # Convert extracted_data to Pydantic models for type safety
         extracted_datasets = {}
@@ -745,7 +801,9 @@ Respond in JSON format:
 
         return AgentResponse(
             success=len(extracted_datasets) > 0 and len(errors) == 0,
-            message=f"Data extraction complete.\n{summary}" if summary else "Data extraction complete.",
+            message=(
+                f"Data extraction complete.\n{summary}" if summary else "Data extraction complete."
+            ),
             data=extraction_result.model_dump(),  # Convert to dict for GraphState
             next_agent=AgentRole.ANALYTICS,
             state=state,

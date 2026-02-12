@@ -9,8 +9,6 @@ Tests the complete RAG retrieval pipeline:
 """
 
 import pytest
-import numpy as np
-from typing import List, Dict, Any
 
 from tests.utils.test_helpers import PerformanceTimer
 
@@ -27,8 +25,8 @@ class TestRAGPipelineEndToEnd:
         sample_datasets,
     ):
         """Test end-to-end: Query → Embedding → Search → Rerank → Results."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -88,8 +86,8 @@ class TestRAGPipelineEndToEnd:
         sample_datasets,
     ):
         """Test vector search component of pipeline."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -116,8 +114,8 @@ class TestRAGPipelineEndToEnd:
         sample_datasets,
     ):
         """Test BM25 search component of pipeline."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -144,8 +142,8 @@ class TestRAGPipelineEndToEnd:
         sample_datasets,
     ):
         """Test RRF fusion combines results correctly."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -157,9 +155,7 @@ class TestRAGPipelineEndToEnd:
         bm25_results = await rag_service.bm25_search(query, top_k=20)
 
         # Fuse results
-        fused_results = RAGService._rrf_fusion(
-            vector_results, bm25_results, k=60
-        )
+        fused_results = RAGService._rrf_fusion(vector_results, bm25_results, k=60)
 
         print(f"\nFused {len(vector_results)} vector + {len(bm25_results)} BM25 results")
         print(f"Result: {len(fused_results)} unique datasets")
@@ -177,8 +173,8 @@ class TestRAGPipelineEndToEnd:
         sample_datasets,
     ):
         """Test cross-encoder reranking component."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -189,9 +185,7 @@ class TestRAGPipelineEndToEnd:
         vector_results = await rag_service.vector_search(query, top_k=20)
 
         # Rerank
-        reranked_results = await rag_service.rerank_results(
-            query, vector_results[:10], top_k=5
-        )
+        reranked_results = await rag_service.rerank_results(query, vector_results[:10], top_k=5)
 
         print(f"\nReranked {len(vector_results[:10])} → {len(reranked_results)} results")
 
@@ -214,16 +208,13 @@ class TestDatabaseIntegration:
         sample_datasets,
     ):
         """Test that database connections are managed efficiently."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
 
         # Create multiple RAG service instances
-        services = [
-            RAGService()
-            for _ in range(5)
-        ]
+        services = [RAGService() for _ in range(5)]
 
         # All should work concurrently
         import asyncio
@@ -231,10 +222,7 @@ class TestDatabaseIntegration:
         async def search(service):
             return await service.search_datasets("income data", top_k=3)
 
-        results = await asyncio.gather(
-            *[search(s) for s in services],
-            return_exceptions=True
-        )
+        results = await asyncio.gather(*[search(s) for s in services], return_exceptions=True)
 
         # All should succeed
         errors = [r for r in results if isinstance(r, Exception)]
@@ -243,8 +231,8 @@ class TestDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_handles_database_unavailable(self):
         """Test handling when database is unavailable."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
 
@@ -258,6 +246,7 @@ class TestDatabaseIntegration:
             results = await rag_service.retrieve(query=query, top_k=5)
             # May return empty results or fallback
             from app.services.rag_models import FolderRetrievalResult
+
             assert isinstance(results, FolderRetrievalResult)
         except Exception as e:
             # Should raise clear error, not crash
@@ -274,12 +263,14 @@ class TestDatabaseIntegration:
         from sqlalchemy import text
 
         result = await async_db_session.execute(
-            text("""
+            text(
+                """
             SELECT indexname
             FROM pg_indexes
             WHERE tablename = 'data_chunks'
             AND indexname LIKE '%embedding%'
-            """)
+            """
+            )
         )
 
         indexes = result.fetchall()
@@ -301,8 +292,8 @@ class TestDataQualityAndConsistency:
         sample_datasets,
     ):
         """Test that same query returns consistent results."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -328,9 +319,9 @@ class TestDataQualityAndConsistency:
         sample_datasets,
     ):
         """Test that results include valid file paths."""
-        from app.services.rag_service import RAGService
+
         from app.config import get_config
-        from pathlib import Path
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -354,8 +345,8 @@ class TestDataQualityAndConsistency:
         sample_datasets,
     ):
         """Test that search doesn't return duplicate datasets."""
-        from app.services.rag_service import RAGService
         from app.config import get_config
+        from app.services.rag_service import RAGService
 
         config = get_config()
         rag_service = RAGService()
@@ -368,6 +359,6 @@ class TestDataQualityAndConsistency:
         dataset_names = [r["dataset_name"] for r in results]
         unique_names = set(dataset_names)
 
-        assert len(dataset_names) == len(unique_names), (
-            f"Duplicate datasets found: {[n for n in dataset_names if dataset_names.count(n) > 1]}"
-        )
+        assert len(dataset_names) == len(
+            unique_names
+        ), f"Duplicate datasets found: {[n for n in dataset_names if dataset_names.count(n) > 1]}"

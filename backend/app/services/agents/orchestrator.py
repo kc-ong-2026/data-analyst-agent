@@ -1,17 +1,18 @@
 """Agent Orchestrator - Manages the multi-agent LangGraph workflow."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
 from app.models import AgentTraceEntry, OrchestrationMetadata
-from .base_agent import AgentRole, AgentResponse, AgentState, BaseAgent, GraphState
-from .verification import QueryVerificationAgent
+
+from .analytics import AnalyticsAgent
+from .base_agent import AgentRole, AgentState, BaseAgent, GraphState
 from .coordinator import DataCoordinatorAgent
 from .extraction import DataExtractionAgent
-from .analytics import AnalyticsAgent
+from .verification import QueryVerificationAgent
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ class AgentOrchestrator:
 
     def __init__(
         self,
-        llm_provider: Optional[str] = None,
-        llm_model: Optional[str] = None,
+        llm_provider: str | None = None,
+        llm_model: str | None = None,
         max_iterations: int = 10,
     ):
         """Initialize the orchestrator with agent instances.
@@ -58,10 +59,14 @@ class AgentOrchestrator:
         verification_max_tokens = None
         if effective_provider == "anthropic":
             anthropic_config = yaml_llm_config.get("providers", {}).get("anthropic", {})
-            verification_model = anthropic_config.get("verification_model", "claude-3-haiku-20240307")
+            verification_model = anthropic_config.get(
+                "verification_model", "claude-3-haiku-20240307"
+            )
             verification_temperature = anthropic_config.get("verification_temperature", 0.0)
             verification_max_tokens = anthropic_config.get("verification_max_tokens", 1024)
-            logger.info(f"✓ Verification Agent using: {verification_model} (temp={verification_temperature}, max_tokens={verification_max_tokens}, Fast validation)")
+            logger.info(
+                f"✓ Verification Agent using: {verification_model} (temp={verification_temperature}, max_tokens={verification_max_tokens}, Fast validation)"
+            )
 
         # Analytics agent configuration
         analytics_model = None
@@ -75,12 +80,14 @@ class AgentOrchestrator:
             analytics_model = anthropic_config.get("analytics_model", "claude-opus-4-6")
             analytics_temperature = anthropic_config.get("analytics_temperature", 0.0)
             analytics_max_tokens = anthropic_config.get("analytics_max_tokens", 8192)
-            logger.info(f"🔬 Analytics Agent using: {analytics_model} (temp={analytics_temperature}, max_tokens={analytics_max_tokens}, Chain of Thought enabled)")
+            logger.info(
+                f"🔬 Analytics Agent using: {analytics_model} (temp={analytics_temperature}, max_tokens={analytics_max_tokens}, Chain of Thought enabled)"
+            )
         else:
             logger.info(f"Analytics Agent using default model for provider: {effective_provider}")
 
         # Initialize agents
-        self.agents: Dict[AgentRole, BaseAgent] = {
+        self.agents: dict[AgentRole, BaseAgent] = {
             AgentRole.VERIFICATION: QueryVerificationAgent(
                 llm_provider=llm_provider or effective_provider,
                 llm_model=verification_model or llm_model,
@@ -131,7 +138,7 @@ class AgentOrchestrator:
             {
                 "coordinator": "coordinator",
                 "end": END,
-            }
+            },
         )
 
         # Add conditional routing after coordinator
@@ -141,7 +148,7 @@ class AgentOrchestrator:
             {
                 "extraction": "extraction",
                 "analytics": "analytics",
-            }
+            },
         )
 
         # Add conditional routing after extraction
@@ -151,7 +158,7 @@ class AgentOrchestrator:
             {
                 "analytics": "analytics",
                 "end": END,
-            }
+            },
         )
 
         # Analytics always ends
@@ -168,7 +175,9 @@ class AgentOrchestrator:
             logger.info("Routing: verification -> coordinator (query valid)")
             return "coordinator"
         else:
-            logger.warning(f"Routing: verification -> end (query invalid: {validation.get('reason')})")
+            logger.warning(
+                f"Routing: verification -> end (query invalid: {validation.get('reason')})"
+            )
             return "end"
 
     def _route_after_coordinator(self, state: GraphState) -> str:
@@ -198,7 +207,7 @@ class AgentOrchestrator:
         logger.info("Routing: extraction -> analytics")
         return "analytics"
 
-    async def _run_verification(self, state: GraphState) -> Dict[str, Any]:
+    async def _run_verification(self, state: GraphState) -> dict[str, Any]:
         """Run the verification agent."""
         logger.info("=" * 60)
         logger.info("Running VERIFICATION AGENT")
@@ -208,7 +217,9 @@ class AgentOrchestrator:
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
-        logger.info(f"Verification result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}...")
+        logger.info(
+            f"Verification result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}..."
+        )
 
         # Extract validation from response.data (not from state.to_graph_state!)
         validation = response.data.get("validation", {}) if response.data else {}
@@ -235,7 +246,7 @@ class AgentOrchestrator:
 
         return result
 
-    async def _run_coordinator(self, state: GraphState) -> Dict[str, Any]:
+    async def _run_coordinator(self, state: GraphState) -> dict[str, Any]:
         """Run the coordinator agent."""
         logger.info("=" * 60)
         logger.info("Running COORDINATOR AGENT")
@@ -245,7 +256,9 @@ class AgentOrchestrator:
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
-        logger.info(f"Coordinator result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}...")
+        logger.info(
+            f"Coordinator result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}..."
+        )
 
         # Merge response state back
         if response.state:
@@ -265,7 +278,7 @@ class AgentOrchestrator:
 
         return {}
 
-    async def _run_extraction(self, state: GraphState) -> Dict[str, Any]:
+    async def _run_extraction(self, state: GraphState) -> dict[str, Any]:
         """Run the extraction agent."""
         logger.info("=" * 60)
         logger.info("Running EXTRACTION AGENT")
@@ -280,8 +293,12 @@ class AgentOrchestrator:
         extracted_count = 0
         if response.state:
             extracted_count = len(response.state.extracted_data)
-            logger.debug(f"Response state extracted_data keys: {list(response.state.extracted_data.keys())}")
-        logger.info(f"Extraction result: success={response.success}, data_sources={extracted_count}")
+            logger.debug(
+                f"Response state extracted_data keys: {list(response.state.extracted_data.keys())}"
+            )
+        logger.info(
+            f"Extraction result: success={response.success}, data_sources={extracted_count}"
+        )
 
         # Merge response state back
         if response.state:
@@ -298,7 +315,7 @@ class AgentOrchestrator:
 
         return {}
 
-    async def _run_analytics(self, state: GraphState) -> Dict[str, Any]:
+    async def _run_analytics(self, state: GraphState) -> dict[str, Any]:
         """Run the analytics agent."""
         logger.info("=" * 60)
         logger.info("Running ANALYTICS AGENT")
@@ -308,7 +325,9 @@ class AgentOrchestrator:
 
         # Execute the agent's internal graph
         response = await agent.execute(agent_state)
-        logger.info(f"Analytics result: success={response.success}, has_visualization={response.visualization is not None}")
+        logger.info(
+            f"Analytics result: success={response.success}, has_visualization={response.visualization is not None}"
+        )
 
         # Merge response state back
         result = {
@@ -330,8 +349,8 @@ class AgentOrchestrator:
     async def execute(
         self,
         message: str,
-        chat_history: Optional[List[Dict[str, str]]] = None,
-    ) -> Dict[str, Any]:
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """Execute the multi-agent workflow for a user message.
 
         Args:
@@ -482,7 +501,7 @@ class AgentOrchestrator:
         """Get an agent by role."""
         return self.agents[role]
 
-    def get_agent_info(self) -> List[Dict[str, str]]:
+    def get_agent_info(self) -> list[dict[str, str]]:
         """Get information about all available agents."""
         return [
             {
@@ -495,8 +514,8 @@ class AgentOrchestrator:
 
 
 def get_orchestrator(
-    llm_provider: Optional[str] = None,
-    llm_model: Optional[str] = None,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
 ) -> AgentOrchestrator:
     """Factory function to create an orchestrator."""
     return AgentOrchestrator(
