@@ -22,6 +22,15 @@ COPY . .
 # Create data directory for vector store
 RUN mkdir -p /app/data/vector_store
 
+# Create logs directory for security audit logs
+RUN mkdir -p /app/logs && chmod 755 /app/logs
+
+# Create non-root user for running the application (security best practice)
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
 # Expose port
 EXPOSE 8000
 

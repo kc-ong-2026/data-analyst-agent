@@ -77,7 +77,7 @@ class TestRAGPipelineEndToEnd:
         assert len(embedding) == 1536  # OpenAI embedding dimension
 
         # Values should be floats
-        assert all(isinstance(x, (int, float)) for x in embedding)
+        assert all(isinstance(x, int | float) for x in embedding)
 
     @pytest.mark.asyncio
     async def test_vector_search_component(

@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 async def verify_extraction_agent():
     """Verify extraction agent no longer loads sample rows."""
-    from app.services.agents.extraction_agent import DataExtractionAgent
-
     from app.services.agents.base_agent import GraphState
+    from app.services.agents.extraction_agent import DataExtractionAgent
 
     logger.info("=" * 80)
     logger.info("VERIFICATION: Extraction Agent Sample Rows Removal")

@@ -99,7 +99,7 @@ class AgentState:
 
         # Handle workflow_plan - should be list but might be dict in some tests
         workflow = graph_state.get("workflow_plan", [])
-        state.workflow_plan = list(workflow) if isinstance(workflow, (list, tuple)) else []
+        state.workflow_plan = list(workflow) if isinstance(workflow, list | tuple) else []
 
         state.current_step = graph_state.get("current_step", 0)
         state.errors = list(graph_state.get("errors", []))

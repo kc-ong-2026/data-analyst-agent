@@ -34,7 +34,7 @@ class InputValidator:
         year_input = user_input["year"]
 
         # Security: Validate input type
-        if not isinstance(year_input, (int, str)):
+        if not isinstance(year_input, int | str):
             return False, None, "Invalid year format - must be number or text"
 
         # Convert to string for parsing

@@ -39,6 +39,7 @@ services:
       - ./dataset:/app/dataset:ro
       - ./api_spec:/app/api_spec:ro
       - backend_data:/app/data
+      - backend_logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,6 +50,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    # Security enhancements
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
 
   frontend:
     build:
@@ -64,6 +80,8 @@ services:
 
 volumes:
   backend_data:
+    driver: local
+  backend_logs:
     driver: local
   postgres_data:
     driver: local

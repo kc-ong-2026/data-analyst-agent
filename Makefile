@@ -1,4 +1,4 @@
-.PHONY: help build up down dev clean logs ingest db-shell test test-smoke test-e2e test-unit test-integration test-evaluation test-evaluation-retrieval test-evaluation-generation test-evaluation-export test-coverage
+.PHONY: help build up down dev clean logs ingest db-shell test test-smoke test-e2e test-unit test-integration test-security test-evaluation test-evaluation-retrieval test-evaluation-generation test-evaluation-export test-coverage
 
 help:
 	@echo "Available commands:"
@@ -17,6 +17,7 @@ help:
 	@echo "  make test-integration         - Run FAST mocked tests (no LLM, no DB - 10s)"
 	@echo "  make test-integration-with-db - Run integration tests with DB (skip LLM - slower)"
 	@echo "  make test-integration-full    - Run ALL integration tests including LLM (VERY SLOW)"
+	@echo "  make test-security            - Run security tests (code validation, sandboxing, audit)"
 	@echo "  make test-evaluation          - Run all evaluation tests"
 	@echo "  make test-evaluation-retrieval - Run retrieval metrics tests only"
 	@echo "  make test-evaluation-generation - Run generation metrics tests only"
@@ -81,6 +82,10 @@ test-integration-with-db:
 test-integration-full:
 	@echo "Running ALL integration tests (including LLM tests - SLOW)..."
 	docker-compose exec backend pytest tests/integration/ -v --tb=short
+
+test-security:
+	@echo "Running security tests (code validation, sandboxing, audit logging)..."
+	docker-compose exec backend pytest tests/security/ -v --tb=short
 
 test-evaluation:
 	@echo "Running all evaluation tests in Docker container..."

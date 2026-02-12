@@ -11,6 +11,11 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 
 from app.models import AnalysisResult, VisualizationData
+from app.services.security import (
+    CodeExecutionAuditLogger,
+    CodeValidator,
+    SandboxExecutor,
+)
 
 from ..base_agent import (
     AgentResponse,
@@ -33,6 +38,45 @@ class AnalyticsAgent(BaseAgent):
     3. generate_visualization - Create visualization specification
     4. compose_response - Compose final response
     """
+
+    def __init__(
+        self,
+        llm_provider: str | None = None,
+        llm_model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ):
+        """Initialize analytics agent with security components.
+
+        Args:
+            llm_provider: The LLM provider to use (openai, anthropic, google)
+            llm_model: The specific model to use
+            temperature: Temperature for LLM sampling
+            max_tokens: Maximum tokens for LLM response
+        """
+        # Initialize parent class with LLM configuration
+        super().__init__(
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        # Get security configuration from app config
+        from app.config import get_config
+
+        config = get_config()
+        security_config = config.yaml_config.get("code_execution_security", {})
+
+        # Initialize security components
+        self.security_enabled = security_config.get("enabled", True)
+        self.code_validator = CodeValidator(config=security_config.get("validation", {}))
+        self.sandbox_executor = SandboxExecutor(config=security_config.get("isolation", {}))
+        self.audit_logger = CodeExecutionAuditLogger(config=security_config.get("audit", {}))
+
+        logger.info(
+            f"Analytics agent security: {'enabled' if self.security_enabled else 'disabled'}"
+        )
 
     @property
     def role(self) -> AgentRole:
@@ -884,12 +928,41 @@ class AnalyticsAgent(BaseAgent):
             logger.info(f"[EXECUTE CODE] Executing {len(code)} characters of code...")
             logger.debug(f"[EXECUTE CODE] Code:\n{code}")
 
+            # Get validation result for audit logging
+            validation_result = state.get("intermediate_results", {}).get("validation_result")
+
             # Execute in safe environment
             result, error = await self._execute_safe(
                 code=code, df=dataframes[df_name], should_plot=should_plot
             )
 
             result_type = type(result).__name__ if result is not None else "None"
+
+            # Audit log execution
+            if self.security_enabled:
+                # Get query for audit context
+                query = None
+                messages = state.get("messages", [])
+                if messages and len(messages) > 0:
+                    last_msg = messages[-1]
+                    query = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+
+                # Create execution result object for logging
+                from app.services.security import ExecutionResult
+
+                exec_result = ExecutionResult(
+                    success=error is None,
+                    result=result,
+                    error=error,
+                )
+
+                self.audit_logger.log_execution(
+                    code=code,
+                    query=query,
+                    validation_result=validation_result,
+                    execution_result=exec_result,
+                    user_context={"iteration": iteration + 1},
+                )
 
             if error:
                 logger.error(f"[EXECUTE CODE] Execution failed: {error}")
@@ -1370,7 +1443,7 @@ IMPORTANT: Write your response as natural text only. Do NOT include JSON, code b
             logger.info("Extracted visualization from matplotlib Figure")
 
         # Strategy 2: If DataFrame/Series returned, auto-generate visualization
-        elif isinstance(result, (pd.DataFrame, pd.Series)):
+        elif isinstance(result, pd.DataFrame | pd.Series):
             viz = self._generate_viz_from_dataframe(result, current_task, validation)
             logger.info("Generated visualization from DataFrame/Series result")
 
@@ -1643,7 +1716,7 @@ Keep the response concise and friendly (3-4 sentences max).
             if col != x_col:
                 # Check if column is numeric
                 sample = rows[0].get(col)
-                if isinstance(sample, (int, float)):
+                if isinstance(sample, int | float):
                     # Prefer columns with metric keywords in name
                     if any(keyword in col.lower() for keyword in metric_keywords):
                         y_col = col
@@ -1654,7 +1727,7 @@ Keep the response concise and friendly (3-4 sentences max).
             for col in columns:
                 if col != x_col:
                     sample = rows[0].get(col)
-                    if isinstance(sample, (int, float)):
+                    if isinstance(sample, int | float):
                         y_col = col
                         break
 
@@ -1663,7 +1736,7 @@ Keep the response concise and friendly (3-4 sentences max).
             for col in columns:
                 if col != y_col:
                     sample = rows[0].get(col)
-                    if not isinstance(sample, (int, float)):
+                    if not isinstance(sample, int | float):
                         x_col = col
                         break
 
@@ -1755,7 +1828,7 @@ Keep the response concise and friendly (3-4 sentences max).
                     # Find first non-numeric column for x_axis (labels)
                     x_axis = None
                     for key in keys_list:
-                        if not isinstance(data[0][key], (int, float)):
+                        if not isinstance(data[0][key], int | float):
                             x_axis = key
                             break
                     if not x_axis:
@@ -1764,7 +1837,7 @@ Keep the response concise and friendly (3-4 sentences max).
                     # Find first numeric column for y_axis (values)
                     y_axis = None
                     for key in keys_list:
-                        if isinstance(data[0][key], (int, float)):
+                        if isinstance(data[0][key], int | float):
                             y_axis = key
                             break
                     if not y_axis:
@@ -1777,14 +1850,14 @@ Keep the response concise and friendly (3-4 sentences max).
             if x_axis and x_axis not in sample_keys:
                 # Try to find best match
                 for key in sample_keys:
-                    if not isinstance(data[0][key], (int, float)):
+                    if not isinstance(data[0][key], int | float):
                         viz["x_axis"] = key
                         break
 
             if y_axis and y_axis not in sample_keys:
                 # Try to find best match (numeric field)
                 for key in sample_keys:
-                    if isinstance(data[0][key], (int, float)):
+                    if isinstance(data[0][key], int | float):
                         viz["y_axis"] = key
                         break
 
@@ -1865,92 +1938,64 @@ Keep the response concise and friendly (3-4 sentences max).
     def _validate_generated_code(
         self, code: str, dataframes: dict[str, pd.DataFrame], should_plot: bool
     ) -> dict[str, Any]:
-        """Validate code for syntax and logical errors.
+        """Validate code for syntax and security violations using AST-based validation.
 
         Returns:
             Dict with 'valid', 'errors', 'warnings', 'suggestions' keys
         """
-        import ast
-        import re
-
-        errors = []
-        warnings = []
         suggestions = []
 
         if not code:
-            errors.append("No code generated")
             return {
                 "valid": False,
-                "errors": errors,
-                "warnings": warnings,
-                "suggestions": suggestions,
+                "errors": ["No code generated"],
+                "warnings": [],
+                "suggestions": [],
             }
 
-        # Check 1: Syntax validity
-        try:
-            ast.parse(code)
-        except SyntaxError as e:
-            errors.append(f"Syntax error: {e}")
-            suggestions.append("Fix Python syntax errors")
-            return {
-                "valid": False,
-                "errors": errors,
-                "warnings": warnings,
-                "suggestions": suggestions,
-            }
+        # Use new security-enhanced code validator
+        if self.security_enabled:
+            df = list(dataframes.values())[0] if dataframes else None
+            validation_result = self.code_validator.validate(code, dataframe=df)
 
-        # Check 2: Column references
-        df_name = list(dataframes.keys())[0] if dataframes else None
-        if df_name:
-            df = dataframes[df_name]
-            available_cols = set(df.columns)
+            errors = validation_result.errors.copy()
+            warnings = validation_result.warnings.copy()
 
-            # Find column references in code (df['col'], df["col"], and method arguments)
-            referenced_cols = set()
+            # Log security violations
+            if not validation_result.is_valid:
+                for violation in validation_result.violations:
+                    self.audit_logger.log_security_violation(
+                        code=code,
+                        violation_type=violation.get("type", "unknown"),
+                        details=violation.get("message", ""),
+                        severity="high" if "forbidden" in violation.get("type", "") else "medium",
+                    )
 
-            # Pattern 1: df['col'] or df["col"]
-            bracket_pattern = r"df\[(['\"])([^'\"]+)\1\]"
-            bracket_matches = re.findall(bracket_pattern, code)
-            referenced_cols.update(match[1] for match in bracket_matches)
+        else:
+            # Fallback to basic syntax check if security is disabled
+            import ast
 
-            # Pattern 2: .groupby('col') or .groupby(['col1', 'col2'])
-            groupby_pattern = r"\.groupby\(['\"]([^'\"]+)['\"]\)"
-            groupby_matches = re.findall(groupby_pattern, code)
-            referenced_cols.update(groupby_matches)
+            try:
+                ast.parse(code)
+                errors = []
+                warnings = []
+            except SyntaxError as e:
+                errors = [f"Syntax error: {e}"]
+                suggestions = ["Fix Python syntax errors"]
+                return {
+                    "valid": False,
+                    "errors": errors,
+                    "warnings": warnings,
+                    "suggestions": suggestions,
+                }
 
-            # Pattern 3: Method calls with column names like .drop('col')
-            method_pattern = r"\.(drop|fillna|rename|pivot|pivot_table)\(['\"]([^'\"]+)['\"]\)"
-            method_matches = re.findall(method_pattern, code)
-            referenced_cols.update(match[1] for match in method_matches)
+        # Additional checks for user experience (not security)
 
-            missing_cols = referenced_cols - available_cols
-            if missing_cols:
-                errors.append(f"Referenced columns not in DataFrame: {missing_cols}")
-                suggestions.append(f"Available columns: {available_cols}")
-
-        # Check 3: Import restrictions
-        forbidden_imports = ["os", "sys", "subprocess", "requests", "urllib", "socket"]
-        for module in forbidden_imports:
-            if f"import {module}" in code or f"from {module}" in code:
-                errors.append(f"Forbidden import: {module}")
-                suggestions.append("Only pandas, numpy, and matplotlib are allowed")
-
-        # Check 4: Forbidden operations
-        forbidden_patterns = [
-            (r"\bopen\(", "File I/O operations are not allowed"),
-            (r"\beval\(", "eval() is not allowed"),
-            (r"\bexec\(", "exec() is not allowed"),
-            (r"__import__", "Dynamic imports are not allowed"),
-        ]
-        for pattern, message in forbidden_patterns:
-            if re.search(pattern, code):
-                errors.append(message)
-
-        # Check 5: Variable assignment (must assign to 'result')
+        # Check: Variable assignment (must assign to 'result')
         if "result =" not in code and "result=" not in code:
             warnings.append("Code should assign output to 'result' variable")
 
-        # Check 6: Matplotlib usage (if should_plot=True)
+        # Check: Matplotlib usage (if should_plot=True)
         if should_plot:
             if "plt" not in code and "matplotlib" not in code:
                 warnings.append("Visualization requested but no matplotlib usage detected")
@@ -2395,95 +2440,50 @@ plt.close()
         logger.warning(f"No valid Python code found in response: {response[:100]}...")
         return ""
 
-    @staticmethod
     async def _execute_code_safely(
-        code: str, timeout: float = 5.0, df: pd.DataFrame | None = None, should_plot: bool = False
+        self, code: str, timeout: float = 5.0, df: pd.DataFrame | None = None, should_plot: bool = False
     ) -> dict[str, Any]:
-        """Execute code safely with timeout and restricted environment.
-
-        Static method for testing code execution independently.
+        """Execute code safely using process-isolated sandbox with resource limits.
 
         Args:
             code: Python code to execute
-            timeout: Execution timeout in seconds
+            timeout: Execution timeout in seconds (unused, configured in sandbox)
             df: Optional DataFrame to make available as 'df'
             should_plot: Whether to allow matplotlib plotting
 
         Returns:
             Dict containing execution result or error
         """
-
-        # Restricted import function - only allow safe modules
-        def safe_import(name, *args, **kwargs):
-            # Check if module is allowed
-            base_module = name.split(".")[0]
-            if base_module not in {"pandas", "numpy", "matplotlib", "time", "datetime"}:
-                raise ImportError(f"Import of '{name}' is not allowed")
-
-            return __import__(name, *args, **kwargs)
-
-        # Setup restricted environment with safe builtins only
-        safe_builtins = {
-            "abs": abs,
-            "all": all,
-            "any": any,
-            "bool": bool,
-            "dict": dict,
-            "enumerate": enumerate,
-            "float": float,
-            "int": int,
-            "len": len,
-            "list": list,
-            "max": max,
-            "min": min,
-            "print": print,  # Allow print for debugging output
-            "range": range,
-            "round": round,
-            "set": set,
-            "sorted": sorted,
-            "str": str,
-            "sum": sum,
-            "tuple": tuple,
-            "zip": zip,
-            "__import__": safe_import,  # Restricted import
-            # Block dangerous builtins: open, eval, exec, etc.
-        }
-
-        env = {"__builtins__": safe_builtins, "pd": pd, "np": np, "result": None}
-
+        # Prepare execution context
+        context = {}
         if df is not None:
-            env["df"] = df.copy()
+            context["df"] = df.copy()
 
-        if should_plot:
-            import matplotlib
-            import matplotlib.pyplot as plt
+        # Execute in sandbox (runs asynchronously in executor)
+        loop = asyncio.get_event_loop()
 
-            # Use non-interactive backend
-            matplotlib.use("Agg")
-            env["plt"] = plt
-            env["matplotlib"] = matplotlib
+        def execute_sync():
+            return self.sandbox_executor.execute_code(code, context=context)
 
         try:
-            # Execute with timeout
-            loop = asyncio.get_event_loop()
+            execution_result = await loop.run_in_executor(None, execute_sync)
 
-            def execute_sync():
-                exec(code, env, env)
-                return env.get("result")
+            if execution_result.success:
+                logger.info(
+                    f"Code executed successfully in {execution_result.execution_time:.3f}s, "
+                    f"result type: {type(execution_result.result).__name__}"
+                )
+                return {"result": execution_result.result, "error": None}
+            else:
+                logger.error(
+                    f"Code execution failed: {execution_result.error_type} - {execution_result.error}"
+                )
+                # Return error dict instead of raising
+                return {"result": None, "error": execution_result.error}
 
-            result = await asyncio.wait_for(
-                loop.run_in_executor(None, execute_sync), timeout=timeout
-            )
-
-            logger.info(f"Code executed successfully, result type: {type(result).__name__}")
-            return {"result": result, "error": None}
-
-        except TimeoutError:
-            logger.error(f"Code execution timeout (>{timeout} seconds)")
-            raise TimeoutError(f"Code execution timeout (>{timeout} seconds)")
         except Exception as e:
-            logger.error(f"Code execution error: {e}", exc_info=True)
-            raise
+            logger.error(f"Sandbox execution error: {e}", exc_info=True)
+            return {"result": None, "error": f"Sandbox error: {str(e)}"}
 
     async def _execute_safe(
         self, code: str, df: pd.DataFrame, should_plot: bool
@@ -2634,7 +2634,7 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
 
             # Check if y-axis values look like years
             y_looks_like_years = any(
-                1900 <= h <= 2100 for h in heights if isinstance(h, (int, float))
+                1900 <= h <= 2100 for h in heights if isinstance(h, int | float)
             )
 
             should_swap = y_is_temporal or (y_looks_like_years and not x_is_temporal)
@@ -2723,7 +2723,7 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
                 safe_labels = []
                 for x in x_data:
                     try:
-                        if isinstance(x, (int, float)) and not pd.isna(x) and x == int(x):
+                        if isinstance(x, int | float) and not pd.isna(x) and x == int(x):
                             safe_labels.append(str(int(x)))
                         else:
                             safe_labels.append(str(x))
@@ -2739,7 +2739,7 @@ Note: The dataset doesn't contain employment data by sector. Instead, here's wha
 
             # Check if y-data looks like years
             y_looks_like_years = any(
-                1900 <= y <= 2100 for y in y_data if isinstance(y, (int, float))
+                1900 <= y <= 2100 for y in y_data if isinstance(y, int | float)
             )
 
             should_swap = y_is_temporal or (y_looks_like_years and not x_is_temporal)

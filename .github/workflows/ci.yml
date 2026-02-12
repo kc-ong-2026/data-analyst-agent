@@ -171,6 +171,45 @@ jobs:
           name: integration-test-results
           path: backend/pytest-results/
 
+  # Backend Security Tests
+  backend-security-tests:
+    name: Backend Security Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run security tests
+        working-directory: ./backend
+        env:
+          TESTING: true
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'dummy-key-for-testing' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-key-for-testing' }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY || 'dummy-key-for-testing' }}
+        run: |
+          pytest tests/security/ -v --tb=short --maxfail=5
+
+      - name: Upload security test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-results
+          path: backend/pytest-results/
+
   # Frontend Lint and Type Check
   frontend-lint:
     name: Frontend Lint & Type Check
@@ -235,7 +274,7 @@ jobs:
   ci-success:
     name: CI Pipeline Success
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-unit-tests, backend-integration-tests, frontend-lint, docker-build]
+    needs: [backend-lint, backend-unit-tests, backend-integration-tests, backend-security-tests, frontend-lint, docker-build]
     if: success()
 
     steps:

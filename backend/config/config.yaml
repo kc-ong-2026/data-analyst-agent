@@ -180,3 +180,39 @@ langsmith:
     - "production"
     - "multi-agent"
     - "singapore-data"
+
+# Code Execution Security Configuration
+code_execution_security:
+  enabled: true  # Master kill switch for security features
+
+  # Code validation configuration
+  validation:
+    use_ast_visitor: true              # Use AST-based validation (recommended)
+    block_dunder_attributes: true      # Block access to __globals__, __class__, etc.
+
+    # Allowed imports whitelist
+    allowed_imports:
+      - pandas
+      - numpy
+      - matplotlib
+      - matplotlib.pyplot
+      - datetime
+      - time
+      - math
+      - statistics
+      - collections
+
+  # Process isolation configuration
+  isolation:
+    use_process_isolation: false       # Execute code in separate process (disabled for now due to Docker multiprocessing issues)
+    cpu_time_limit_seconds: 5          # Maximum CPU time per execution
+    memory_limit_mb: 512               # Maximum memory per execution
+    wall_time_limit_seconds: 10        # Maximum wall clock time (includes I/O wait)
+    max_open_files: 3                  # File descriptor limit (3 = stdin/stdout/stderr only)
+
+  # Audit logging configuration
+  audit:
+    enabled: true                      # Enable audit logging
+    log_file: "/app/logs/code_execution_audit.log"  # Audit log file path
+    max_bytes: 104857600               # 100MB max log file size
+    backup_count: 10                   # Number of backup files to keep
