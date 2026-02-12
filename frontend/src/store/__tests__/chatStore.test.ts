@@ -115,7 +115,7 @@ describe('chatStore', () => {
 
   describe('sendMessage (streaming)', () => {
     it('should handle streaming message correctly', async () => {
-      (chatApi.streamMessage as jest.Mock).mockImplementation(async (request, callbacks) => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
         // Simulate streaming events
         callbacks.onStart('conv-456');
         callbacks.onAgent('coordinator', 'running', 'Processing query');
@@ -156,7 +156,7 @@ describe('chatStore', () => {
     });
 
     it('should handle streaming errors', async () => {
-      (chatApi.streamMessage as jest.Mock).mockImplementation(async (request, callbacks) => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
         callbacks.onStart('conv-789');
         callbacks.onError('Streaming failed');
       });
@@ -182,7 +182,7 @@ describe('chatStore', () => {
         y_axis: 'y',
       };
 
-      (chatApi.streamMessage as jest.Mock).mockImplementation(async (request, callbacks) => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
         callbacks.onStart('conv-viz');
         callbacks.onToken('Chart data:');
         callbacks.onVisualization(mockVisualization);
