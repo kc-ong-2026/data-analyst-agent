@@ -105,3 +105,32 @@ testing:
     skip_llm_tests: false
     fail_fast: false
     coverage_threshold: 80
+
+  # Code execution security (for analytics agent tests)
+  # These settings mirror the main config.yaml but can be overridden for testing
+  code_execution_security:
+    enabled: true  # Keep security enabled in tests to catch issues
+
+    validation:
+      use_ast_visitor: true
+      block_dunder_attributes: true
+      allowed_imports:
+        - pandas
+        - numpy
+        - matplotlib
+        - matplotlib.pyplot
+        - datetime
+        - time
+        - math
+        - statistics
+        - collections
+
+    isolation:
+      use_process_isolation: false  # Disabled for Docker compatibility
+      cpu_time_limit_seconds: 5
+      memory_limit_mb: 512
+      wall_time_limit_seconds: 10
+      max_open_files: 3
+
+    audit:
+      enabled: false  # Disable audit logging in tests for cleaner output

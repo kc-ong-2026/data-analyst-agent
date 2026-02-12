@@ -58,6 +58,7 @@ htmlcov/
 
 # Docker
 *.log
+logs/
 
 # Vector store data
 backend/data/vector_store/

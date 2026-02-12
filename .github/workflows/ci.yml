@@ -154,7 +154,7 @@ jobs:
         run: |
           psql -h localhost -U govtech -d govtech_rag -f db/init_folder_based.sql
 
-      - name: Run integration tests (fast, no LLM)
+      - name: Run integration tests
         working-directory: ./backend
         env:
           TESTING: true

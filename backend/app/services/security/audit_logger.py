@@ -32,9 +32,16 @@ class CodeExecutionAuditLogger:
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False  # Don't propagate to root logger
 
-        # Ensure log directory exists
+        # Ensure log directory exists - with fallback for CI/test environments
         log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError):
+            # Fallback to local logs directory for CI/test environments
+            fallback_dir = Path("logs")
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            log_file = str(fallback_dir / "code_execution_audit.log")
+            log_path = Path(log_file)
 
         # Add rotating file handler (100MB max, 10 backups)
         handler = RotatingFileHandler(

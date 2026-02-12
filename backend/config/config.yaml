@@ -213,6 +213,6 @@ code_execution_security:
   # Audit logging configuration
   audit:
     enabled: true                      # Enable audit logging
-    log_file: "/app/logs/code_execution_audit.log"  # Audit log file path
+    log_file: "logs/code_execution_audit.log"  # Audit log file path (relative to backend dir)
     max_bytes: 104857600               # 100MB max log file size
     backup_count: 10                   # Number of backup files to keep
