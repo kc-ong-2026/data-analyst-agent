@@ -559,22 +559,40 @@ class QueryVerificationAgent(BaseAgent):
         validation["valid"] = is_valid
 
         if not is_valid:
-            # Check what failed
-            if is_employment_query and not dimensions_valid:
-                # Dimension validation failed
+            # Determine failure type for conversation management
+            if not validation.get("topic_valid", False):
+                # Topic validation failed - clear conversation
+                validation["failure_type"] = "invalid_topic"
+                validation["clear_conversation"] = True
+                reason = validation.get(
+                    "reason", "Query must be about employment, income, or hours worked"
+                )
+                message = f"❌ {reason}"
+                validation["reason"] = reason
+            elif validation.get("missing_year"):
+                # Missing year - keep conversation for context append
+                validation["failure_type"] = "missing_year"
+                validation["clear_conversation"] = False
+                reason = validation.get("reason", "Please specify the year")
+                message = reason  # Clean message asking for year
+                validation["reason"] = reason
+            elif is_employment_query and not dimensions_valid:
+                # Missing dimension - keep conversation for context append
+                validation["failure_type"] = "missing_dimension"
+                validation["clear_conversation"] = False
                 reason = dimension_check.get("reason", "Please specify employment dimensions")
                 message = f"❌ {reason}"
-                # Store reason at top level for orchestrator to find
                 validation["reason"] = reason
             else:
+                # Other failures (unavailable years, etc.) - keep conversation
+                validation["failure_type"] = "other"
+                validation["clear_conversation"] = False
                 reason = validation.get("reason", "Query validation failed")
-                # Don't add error emoji for missing year (it's a clarification request)
-                if validation.get("missing_year"):
-                    message = reason  # Clean message asking for year
-                else:
-                    message = f"❌ {reason}"  # Error for invalid topic or unavailable years
-                # Reason already stored in validation from previous nodes
+                message = f"❌ {reason}"
+                validation["reason"] = reason
         else:
+            validation["failure_type"] = None
+            validation["clear_conversation"] = False
             message = "✓ Query validated successfully"
 
         return {

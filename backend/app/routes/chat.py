@@ -58,34 +58,49 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                                 0, msg.content
                             )  # Insert at start to maintain order
 
-                    # Check if assistant was asking for clarification
+                    # Check if assistant was asking for clarification (not invalid topic error)
+                    # IMPORTANT: Don't append context if previous query had invalid topic
                     if last_assistant_msg and all_user_messages:
-                        clarification_keywords = [
-                            "which year",
-                            "specify year",
-                            "year range",
-                            "what year",
-                            "available data",
-                            "please specify",
-                            "interested in",
-                            "provide",
-                            "dimension",
-                            "age group",
-                            "sex/gender",
-                            "industry",
-                            "qualification",
-                        ]
-                        is_asking_for_clarification = any(
-                            kw in last_assistant_msg for kw in clarification_keywords
+                        # Skip context append if previous message was invalid topic error
+                        is_invalid_topic_error = (
+                            "query must be about employment, income, or hours worked"
+                            in last_assistant_msg
                         )
 
-                        if is_asking_for_clarification:
-                            # Combine ALL previous user messages with current one for full context!
-                            combined_message = " ".join(all_user_messages + [request.message])
-                            logger.info("🔗 [SSE] Context Append Detected!")
-                            logger.info(f"   Previous messages: {all_user_messages}")
-                            logger.info(f"   Current response: '{request.message}'")
-                            logger.info(f"   Combined query: '{combined_message}'")
+                        if is_invalid_topic_error:
+                            # Previous query was invalid topic - clear conversation and start fresh
+                            logger.info(
+                                "🚫 [SSE] Skipping context append - previous query had invalid topic"
+                            )
+                            del conversations[conversation_id]
+                        else:
+                            # Check if assistant was asking for clarification (year/dimension)
+                            clarification_keywords = [
+                                "which year",
+                                "specify year",
+                                "year range",
+                                "what year",
+                                "available data",
+                                "please specify",
+                                "interested in",
+                                "provide",
+                                "dimension",
+                                "age group",
+                                "sex/gender",
+                                "industry",
+                                "qualification",
+                            ]
+                            is_asking_for_clarification = any(
+                                kw in last_assistant_msg for kw in clarification_keywords
+                            )
+
+                            if is_asking_for_clarification:
+                                # Combine ALL previous user messages with current one for full context!
+                                combined_message = " ".join(all_user_messages + [request.message])
+                                logger.info("🔗 [SSE] Context Append Detected!")
+                                logger.info(f"   Previous messages: {all_user_messages}")
+                                logger.info(f"   Current response: '{request.message}'")
+                                logger.info(f"   Combined query: '{combined_message}'")
 
                 # Execute workflow with combined message using real-time callbacks
                 status_queue: asyncio.Queue = asyncio.Queue()
@@ -163,18 +178,39 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 if request.include_visualization and result.get("visualization"):
                     yield f"data: {json.dumps({'type': 'visualization', 'visualization': result['visualization']})}\n\n"
 
-                # Store conversation
-                if conversation_id not in conversations:
-                    conversations[conversation_id] = []
-                conversations[conversation_id].append(
-                    ChatMessage(role="user", content=request.message)
-                )
-                conversations[conversation_id].append(
-                    ChatMessage(role="assistant", content=full_message)
-                )
+                # Handle conversation storage based on validation result
+                if validation and not validation.get("valid", True):
+                    # Validation failed - check if we should clear or keep conversation
+                    should_clear = validation.get("clear_conversation", False)
 
-                # Clear conversation after successful query (keep only for validation failures)
-                if not (validation and not validation.get("valid", True)):
+                    if should_clear:
+                        # Topic validation failed - clear conversation
+                        logger.info("🧹 [SSE] Clearing conversation due to invalid topic")
+                        if conversation_id in conversations:
+                            del conversations[conversation_id]
+                    else:
+                        # Missing year/dimension - keep conversation for context append
+                        if conversation_id not in conversations:
+                            conversations[conversation_id] = []
+                        conversations[conversation_id].append(
+                            ChatMessage(role="user", content=request.message)
+                        )
+                        conversations[conversation_id].append(
+                            ChatMessage(role="assistant", content=full_message)
+                        )
+                        logger.info(
+                            f"💬 [SSE] Keeping conversation history for clarification ({validation.get('failure_type', 'unknown')})"
+                        )
+                else:
+                    # Success - store and then clear conversation
+                    if conversation_id not in conversations:
+                        conversations[conversation_id] = []
+                    conversations[conversation_id].append(
+                        ChatMessage(role="user", content=request.message)
+                    )
+                    conversations[conversation_id].append(
+                        ChatMessage(role="assistant", content=full_message)
+                    )
                     logger.info("🧹 [SSE] Clearing conversation context after successful query")
                     del conversations[conversation_id]
 
@@ -242,34 +278,46 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 elif msg.role == "user":
                     all_user_messages.insert(0, msg.content)  # Insert at start to maintain order
 
-            # Check if assistant was asking for clarification
+            # Check if assistant was asking for clarification (not invalid topic error)
+            # IMPORTANT: Don't append context if previous query had invalid topic
             if last_assistant_msg and all_user_messages:
-                clarification_keywords = [
-                    "which year",
-                    "specify year",
-                    "year range",
-                    "what year",
-                    "available data",
-                    "please specify",
-                    "interested in",
-                    "provide",
-                    "dimension",
-                    "age group",
-                    "sex/gender",
-                    "industry",
-                    "qualification",
-                ]
-                is_asking_for_clarification = any(
-                    kw in last_assistant_msg for kw in clarification_keywords
+                # Skip context append if previous message was invalid topic error
+                is_invalid_topic_error = (
+                    "query must be about employment, income, or hours worked" in last_assistant_msg
                 )
 
-                if is_asking_for_clarification:
-                    # Combine ALL previous user messages with current one for full context!
-                    combined_message = " ".join(all_user_messages + [request.message])
-                    logger.info("🔗 Context Append Detected!")
-                    logger.info(f"   Previous messages: {all_user_messages}")
-                    logger.info(f"   Current response: '{request.message}'")
-                    logger.info(f"   Combined query: '{combined_message}'")
+                if is_invalid_topic_error:
+                    # Previous query was invalid topic - clear conversation and start fresh
+                    logger.info("🚫 Skipping context append - previous query had invalid topic")
+                    del conversations[conversation_id]
+                else:
+                    # Check if assistant was asking for clarification (year/dimension)
+                    clarification_keywords = [
+                        "which year",
+                        "specify year",
+                        "year range",
+                        "what year",
+                        "available data",
+                        "please specify",
+                        "interested in",
+                        "provide",
+                        "dimension",
+                        "age group",
+                        "sex/gender",
+                        "industry",
+                        "qualification",
+                    ]
+                    is_asking_for_clarification = any(
+                        kw in last_assistant_msg for kw in clarification_keywords
+                    )
+
+                    if is_asking_for_clarification:
+                        # Combine ALL previous user messages with current one for full context!
+                        combined_message = " ".join(all_user_messages + [request.message])
+                        logger.info("🔗 Context Append Detected!")
+                        logger.info(f"   Previous messages: {all_user_messages}")
+                        logger.info(f"   Current response: '{request.message}'")
+                        logger.info(f"   Combined query: '{combined_message}'")
 
         # Get chat history - DISABLED to make each query independent
         # Each new query should NOT have access to previous conversation context
@@ -292,18 +340,31 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # Check if verification failed (topic invalid)
         validation = result.get("query_validation", {})
         if validation and not validation.get("valid", True):
-            # KEEP conversation history for context append on follow-up
-            # Store the validation error so user can respond
-            if conversation_id not in conversations:
-                conversations[conversation_id] = []
+            # Check if we should clear conversation (topic invalid) or keep it (missing year/dimension)
+            should_clear = validation.get("clear_conversation", False)
 
-            conversations[conversation_id].append(ChatMessage(role="user", content=request.message))
-            conversations[conversation_id].append(
-                ChatMessage(
-                    role="assistant", content=validation.get("reason", "Query validation failed")
+            if should_clear:
+                # Topic validation failed - clear conversation
+                logger.info("🧹 Clearing conversation due to invalid topic")
+                if conversation_id in conversations:
+                    del conversations[conversation_id]
+            else:
+                # Missing year/dimension - keep conversation for context append
+                if conversation_id not in conversations:
+                    conversations[conversation_id] = []
+
+                conversations[conversation_id].append(
+                    ChatMessage(role="user", content=request.message)
                 )
-            )
-            logger.info("💬 Keeping conversation history for clarification follow-up")
+                conversations[conversation_id].append(
+                    ChatMessage(
+                        role="assistant",
+                        content=validation.get("reason", "Query validation failed"),
+                    )
+                )
+                logger.info(
+                    f"💬 Keeping conversation history for clarification ({validation.get('failure_type', 'unknown')})"
+                )
 
             # Return validation error
             return ChatResponse(
@@ -315,6 +376,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     "validation_failed": True,
                     "validation_details": validation,
                     "agents_used": result.get("metadata", {}).get("agents_used", []),
+                    "failure_type": validation.get("failure_type"),
+                    "conversation_cleared": should_clear,
                 },
             )
 

@@ -50,7 +50,7 @@ export const ChatPanel: React.FC = () => {
               <ul className="space-y-1 text-gray-500">
                 <li>"What is the employment rate in Singapore?"</li>
                 <li>"Show me income trends over the years"</li>
-                <li>"Compare labour force by education level"</li>
+                <li>"What is the hours worked over the years"</li>
               </ul>
             </div>
           </div>
