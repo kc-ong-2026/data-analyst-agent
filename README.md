@@ -29,94 +29,45 @@ An intelligent AI-powered chat assistant that enables natural language querying 
 
 ## 🎯 Overview
 
-This system allows users to query Singapore government datasets (employment, income, hours worked) using natural language and receive intelligent insights with visualizations. It uses a sophisticated multi-agent pipeline that validates queries, retrieves relevant data using hybrid RAG (vector + BM25 search), generates pandas code for analysis, and creates visualizations.
+An AI-powered chat assistant for natural language querying of Singapore government datasets (employment, income, hours worked). Ask questions in plain English and receive intelligent insights with auto-generated visualizations.
 
-### What Makes This System Unique?
+**Key Capabilities**: Multi-agent pipeline validates queries → retrieves data via hybrid RAG (vector + BM25 search) → generates pandas code for analysis → creates visualizations.
 
-- **Multi-Agent Intelligence**: Four specialized agents (Verification, Coordinator, Extraction, Analytics) work together to handle complex queries
-- **Hybrid RAG Retrieval**: Combines vector search, BM25 keyword matching, RRF fusion, and cross-encoder reranking for optimal dataset selection
-- **LLM Resilience**: Automatic retry, model fallback, and provider fallback with circuit breaker pattern ensures reliability
-- **Safe Code Generation**: Generates pandas code (not SQL) and executes in a sandboxed environment
-- **Confidence-Based Loading**: Intelligently loads 1-3 most relevant datasets based on reranker scores
-- **Real-Time Streaming**: Progressive response delivery via Server-Sent Events (SSE)
+**Read [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design.**
 
 ---
 
 ## ✨ Key Features
 
-### Core Capabilities
-- 🤖 **Natural Language Queries**: Ask questions in plain English (e.g., "Show me employment trends in 2023 by age")
-- 📊 **Dynamic Visualizations**: Auto-generated bar, line, pie, and scatter charts
-- 🔍 **Intelligent Data Retrieval**: Hybrid search finds the most relevant datasets
-- 💡 **Contextual Analysis**: Multi-agent system understands query intent and generates insights
-- 📈 **Real-Time Streaming**: See responses as they're generated
-
-### Technical Features
-- 🏗️ **Multi-Agent Architecture**: LangGraph-based agent orchestration
-- 🔄 **LLM Provider Agnostic**: Supports OpenAI, Anthropic, and Google models
-- 🛡️ **Resilient Infrastructure**: Automatic retry and fallback mechanisms
-- 🐳 **Docker Ready**: Full containerization for easy deployment
-- 🧪 **Comprehensive Testing**: Unit, integration, and evaluation tests
-- 📝 **Type Safety**: Full TypeScript frontend and Pydantic backend
+- 🤖 **Natural Language Queries** - Ask in plain English (e.g., "Show me employment trends in 2023 by age")
+- 📊 **Auto-Generated Visualizations** - Bar, line, pie, and scatter charts
+- 🔍 **Hybrid RAG Retrieval** - Vector + BM25 search with cross-encoder reranking
+- 🛡️ **LLM Resilience** - Automatic retry, model fallback, provider fallback with circuit breaker
+- 🏗️ **Multi-Agent Architecture** - Verification → Coordinator → Extraction → Analytics pipeline
+- 🔄 **Provider Agnostic** - Supports OpenAI, Anthropic, and Google models
+- 🐳 **Docker Ready** - Full containerization with hot reload for development
 
 ---
 
 ## 🏛️ Architecture
 
-### High-Level System Architecture
-
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Frontend (React + TypeScript)                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Chat UI      │  │ Visualization│  │ Zustand      │          │
-│  │ (SSE Stream) │  │ Panel        │  │ Store        │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-└─────────────────────────────────────────────────────────────────┘
-                              │ HTTP/SSE
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Backend (FastAPI + LangGraph)                 │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │              Agent Orchestrator (LangGraph)                 │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │ │
-│  │  │Verifica- │→ │Coordina- │→ │Extrac-   │→ │Analytics │  │ │
-│  │  │tion      │  │tor       │  │tion      │  │          │  │ │
-│  │  │(Validate)│  │(Plan)    │  │(RAG)     │  │(Analyze) │  │ │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│           │                 │                 │                  │
-│  ┌────────▼─────┐  ┌───────▼──────┐  ┌──────▼───────┐         │
-│  │ RAG Service  │  │ LLM Resilience│  │ Data Service │         │
-│  │ (Vector+BM25)│  │ (Retry+       │  │ (DataFrame   │         │
-│  │  +Reranking  │  │  Fallback)    │  │  Operations) │         │
-│  └──────────────┘  └──────────────┘  └──────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│         PostgreSQL with pgvector Extension                       │
-│  ┌──────────────────────┐  ┌──────────────────────┐            │
-│  │ employment_metadata  │  │ income_metadata      │            │
-│  │ (embeddings + BM25)  │  │ (embeddings + BM25)  │            │
-│  └──────────────────────┘  └──────────────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+User Query
+    ↓
+Verification Agent (validates topic & year)
+    ↓
+Coordinator Agent (creates execution plan)
+    ↓
+Extraction Agent (RAG: Vector + BM25 + Reranking)
+    ↓
+Analytics Agent (pandas code generation + visualization)
+    ↓
+Response + Chart
 ```
 
-### Multi-Agent Workflow
+**Stack**: React + TypeScript → FastAPI + LangGraph → PostgreSQL + pgvector
 
-```
-User Query → Verification Agent → [Valid?] → Coordinator Agent
-                    ↓ Invalid              ↓
-                   END                Data Extraction Agent
-                                           ↓
-                                    Analytics Agent
-                                           ↓
-                              Response + Visualization
-```
-
-**For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md)**
+**📖 For detailed architecture, design decisions, and system diagrams, see [ARCHITECTURE.md](ARCHITECTURE.md)**
 
 ---
 
@@ -590,138 +541,136 @@ open htmlcov/index.html
 
 ## 💬 Sample Queries
 
-Here are example queries you can try in the chat interface to demonstrate the system's capabilities:
+Try these queries based on the actual datasets available (1991-2025):
 
-### Basic Employment Queries
-
-```
-1. "Show me employment data for 2023"
-   - Retrieves employment statistics for 2023
-   - Creates visualization of employment by category
-
-2. "What is the unemployment rate in 2022?"
-   - Calculates unemployment rate from employment data
-   - Provides explanation and context
-
-3. "Compare employment between 2020 and 2023"
-   - Multi-year comparison
-   - Line chart showing trends over time
-```
-
-### Demographic Analysis
+### Employment Rate Queries
 
 ```
-4. "Show me employment by age group in 2023"
-   - Breaks down employment by age categories
-   - Bar chart with age distribution
+1. "What is the employment rate for males vs females in 2023?"
+   ✅ Dataset: Resident_Employment_Rate_By_Age_and_Sex.csv
+   → Compares male/female employment rates by age groups
 
-5. "What is the employment rate for males vs females in 2023?"
-   - Gender-based comparison
-   - Grouped bar chart showing differences
+2. "Show me employment rate trends for people aged 55-64 from 2010 to 2023"
+   ✅ Dataset: Resident_Employment_Rate_By_Age_and_Sex.csv
+   → Line chart showing elderly employment trends over time
 
-6. "Employment trends for people aged 55 and above from 2019 to 2023"
-   - Time series for specific age group
-   - Line chart showing elderly employment trends
+3. "What is the employment rate for females aged 25-54 in 2020?"
+   ✅ Dataset: Resident_Employment_Rate_By_Age_and_Sex.csv
+   → Specific demographic employment rate
 ```
 
-### Industry Analysis
+### Employment by Education Level
 
 ```
-7. "Which industries have the highest employment in 2023?"
-   - Ranks industries by employment numbers
-   - Bar chart with top industries
+4. "How many residents with primary education are employed in 2023?"
+   ✅ Dataset: Employed_Residents_by_Highest_Qualification_Attained_and_Sex.csv
+   → Shows employed counts by education level
 
-8. "Show me employment in the technology sector over the last 5 years"
-   - Industry-specific trend analysis
-   - Line chart with tech employment growth
+5. "Compare employment between males and females with university degrees in 2020"
+   ✅ Dataset: Employed_Residents_by_Highest_Qualification_Attained_and_Sex.csv
+   → Gender comparison for specific education level
+```
 
-9. "Compare employment in manufacturing vs services sector"
-   - Cross-industry comparison
-   - Grouped bar chart
+### Employment by Occupation
+
+```
+6. "Show me the number of professionals employed in 2023"
+   ✅ Dataset: Number_of_Employed_Residents_by_Occupation_and_Sex.csv
+   → Employment counts by occupation category
+
+7. "Compare employment between managers and service workers in 2020"
+   ✅ Dataset: Number_of_Employed_Residents_by_Occupation_and_Sex.csv
+   → Cross-occupation comparison
+
+8. "How many female clerical workers were employed in 2023?"
+   ✅ Dataset: Number_of_Employed_Residents_by_Occupation_and_Sex.csv
+   → Gender + occupation filter
 ```
 
 ### Income Analysis
 
 ```
-10. "What is the average income in 2023?"
-    - Calculates mean income statistics
-    - Provides context about income distribution
+9. "What is the median income in 2023?"
+   ✅ Dataset: Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Residents.csv
+   → Shows p50 (median) income including/excluding CPF
 
-11. "Show me income trends by qualification level"
-    - Income analysis by education
-    - Bar chart comparing qualification levels
+10. "Show income trends from 2010 to 2023"
+    ✅ Dataset: Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Residents.csv
+    → Line chart showing income growth over time
 
-12. "Compare income between different age groups in 2023"
-    - Age-based income analysis
-    - Bar chart showing income by age
+11. "What is the 20th percentile income in 2020?"
+    ✅ Dataset: Gross_Monthly_Income_From_Employment_of_Full_Time_Employed_Residents.csv
+    → Shows p20 income statistics
 ```
 
 ### Hours Worked Analysis
 
 ```
-13. "What are the average working hours in 2023?"
-    - Calculates mean hours worked
-    - Provides comparison to previous years
+12. "What are the average working hours in Manufacturing in 2023?"
+    ✅ Dataset: annual_average_Hours_Worked_Per_Employed_Person_Aged_Fifteen_And_Over_By_Industry.csv
+    → Industry-specific hours worked
 
-14. "Show me working hours by industry"
-    - Industry-specific hours analysis
-    - Bar chart with hours by sector
+13. "Compare working hours between Retail Trade and Financial Services in 2020"
+    ✅ Dataset: annual_average_Hours_Worked_Per_Employed_Person_Aged_Fifteen_And_Over_By_Industry.csv
+    → Cross-industry hours comparison
 
-15. "Compare working hours between full-time and part-time workers"
-    - Employment type comparison
-    - Grouped bar chart
+14. "Show me working hours trends in Construction from 2017 to 2023"
+    ✅ Dataset: annual_average_Hours_Worked_Per_Employed_Person_Aged_Fifteen_And_Over_By_Industry.csv
+    → Time series for specific industry
 ```
 
-### Complex Multi-Dimensional Queries
+### Employment Change by Industry
 
 ```
-16. "Show me employment trends for females in the finance sector from 2020 to 2023"
-    - Multi-filter query (gender + industry + time)
-    - Line chart with specific segment
+15. "How did employment in Construction change in 2023?"
+    ✅ Dataset: Annual_Employment_Change_by_Industry_28042025.csv
+    → Employment change statistics by industry
 
-17. "What is the employment rate for degree holders aged 25-34 in 2023?"
-    - Triple filter (education + age + year)
-    - Provides specific statistics
-
-18. "Compare income between males and females in the technology sector"
-    - Multi-dimensional comparison (gender + industry + income)
-    - Grouped bar chart
+16. "Compare employment changes in Manufacturing vs Services in 2020"
+    ✅ Dataset: Annual_Employment_Change_by_Industry_28042025.csv
+    → Cross-sector comparison of employment changes
 ```
 
-### Invalid Queries (for testing validation)
+### Invalid Queries (Testing Validation)
 
 ```
-19. "What's the weather in Singapore?"
-    ❌ Response: "I can only answer questions about Singapore employment, income, and hours worked data."
+❌ "What's the weather in Singapore?"
+   Response: "I can only answer questions about Singapore employment, income, and hours worked data."
 
-20. "Show me employment data"
-    ❌ Response: "Please specify which year or year range you're interested in."
+❌ "Show me employment data"
+   Response: "Please specify which year or year range you're interested in."
 
-21. "How many people work in 2025?"
-    ⚠️ Response: "Data for 2025 is not available. Available years: 2010-2023."
+❌ "How many people work in 1980?"
+   Response: "Data for 1980 is not available. Available years: 1991-2025."
+
+❌ "What is the GDP of Singapore?"
+   Response: "I can only answer questions about employment, income, and hours worked."
 ```
 
 ### Expected Response Format
 
 For each valid query, you'll receive:
 
-1. **Natural Language Explanation**: Human-readable insights
-2. **Visualization** (if appropriate): Chart spec rendered by Recharts
-3. **Sources**: List of datasets used
-4. **Agent Trace**: Shows which agents processed the query
+1. **Natural Language Explanation**: AI-generated insights from the data
+2. **Visualization** (if appropriate): Chart rendered by Recharts (bar/line/pie/scatter)
+3. **Sources**: List of datasets used (e.g., "Resident_Employment_Rate_By_Age_and_Sex.csv")
+4. **Agent Trace**: Shows pipeline steps (Verification → Coordinator → Extraction → Analytics)
 
-Example response for "Show me employment by age in 2023":
+Example response for "What is the employment rate for males aged 25-54 in 2023?":
 
 ```json
 {
-  "message": "Employment in 2023 totaled 3.2 million. The 25-34 age group has the highest employment at 980,000, followed by 35-44 at 820,000...",
+  "message": "In 2023, the employment rate for males aged 25-54 was 95.1%, showing strong labor force participation...",
   "visualization": {
     "type": "bar",
-    "title": "Employment by Age Group (2023)",
-    "data": {...}
+    "title": "Employment Rate by Age Group (2023)",
+    "data": [...]
   },
-  "sources": ["mrsd_2024_employment.csv"],
-  "agent_trace": ["Query Verification", "Data Coordinator", "Data Extraction", "Analytics"]
+  "sources": ["Resident_Employment_Rate_By_Age_and_Sex.csv"],
+  "metadata": {
+    "execution_time": "2.3s",
+    "datasets_loaded": 1
+  }
 }
 ```
 
