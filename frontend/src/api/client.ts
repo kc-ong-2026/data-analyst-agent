@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { ChatRequest, ChatResponse, VisualizationData } from '../types';
+import { getApiUrl } from '../config/env';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = getApiUrl();
 
 /**
  * SSE Event types from backend

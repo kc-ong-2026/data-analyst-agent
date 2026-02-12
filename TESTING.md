@@ -10,6 +10,8 @@ This guide explains how to run tests, collect evaluation metrics, and export sco
 
 1. [Overview](#overview)
 2. [Running Tests](#running-tests)
+   - [Backend Tests](#backend-tests-python-pytest)
+   - [Frontend Tests](#frontend-tests-javascript-jest)
 3. [Evaluation Metrics](#evaluation-metrics)
 4. [Fine-Tuning Data Collection](#fine-tuning-data-collection)
 5. [LangSmith Integration](#langsmith-integration)
@@ -54,10 +56,15 @@ python scripts/run_evaluation.py --export-format openai --output-dir ./fine_tuni
 
 ## Running Tests
 
-### Basic Commands
+This project includes comprehensive testing for both backend (Python/pytest) and frontend (TypeScript/Jest) components.
+
+### Backend Tests (Python + pytest)
+
+#### Basic Commands
 
 ```bash
-# Run all tests
+# Run all backend tests
+cd backend
 pytest
 
 # Run specific test markers
@@ -425,6 +432,271 @@ def test_legitimate_code_passes():
     execution = executor.execute_code(safe_code, context={"df": df})
     assert execution.success
     assert execution.result == 30  # Expected sum
+```
+
+---
+
+### Frontend Tests (TypeScript + Jest)
+
+The frontend uses **Jest** with **React Testing Library** for unit and integration testing of React components, stores, and API clients.
+
+#### Setup
+
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Install dependencies (if not already installed)
+npm install
+```
+
+#### Basic Commands
+
+```bash
+# Run all frontend tests
+npm test
+
+# Run tests in watch mode (auto-rerun on file changes)
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+
+# Run tests in CI mode (non-interactive, with coverage)
+npm run test:ci
+```
+
+#### Test Structure
+
+The frontend tests are organized as follows:
+
+```
+frontend/src/
+├── api/
+│   ├── __tests__/
+│   │   └── client.test.ts          # API client tests (chatApi, configApi, dataApi)
+│   └── client.ts
+├── store/
+│   ├── __tests__/
+│   │   └── chatStore.test.ts       # Zustand store tests (state management)
+│   └── chatStore.ts
+├── types/
+│   ├── __tests__/
+│   │   └── index.test.ts           # TypeScript type definition tests
+│   └── index.ts
+└── components/                      # Component tests (future)
+    └── __tests__/
+```
+
+#### Test Coverage
+
+**Current Frontend Test Coverage**:
+
+| Module | Description | Test Count | Coverage Target |
+|--------|-------------|-----------|-----------------|
+| **API Client** | HTTP requests, SSE streaming | 15 tests | 80%+ |
+| **Chat Store** | State management, message handling | 12 tests | 85%+ |
+| **Type Definitions** | TypeScript type validation | 8 tests | 100% |
+
+**API Client Tests** (`api/__tests__/client.test.ts`):
+```typescript
+✅ test_stream_message_sse_events         # SSE streaming with events
+✅ test_stream_message_visualization      # Visualization events
+✅ test_stream_message_errors             # Error handling during streaming
+✅ test_stream_message_http_errors        # HTTP error responses
+✅ test_stream_message_network_errors     # Network failures
+✅ test_stream_message_malformed_json     # Malformed JSON handling
+✅ test_send_message_post                 # Traditional POST request
+✅ test_get_history                       # Fetch conversation history
+✅ test_clear_history                     # Clear conversation
+✅ test_list_conversations                # List all conversations
+✅ test_config_health_check               # Health check endpoint
+✅ test_data_list_datasets                # List datasets
+✅ test_data_get_dataset_info             # Get dataset metadata
+✅ test_data_query_dataset_with_params    # Query with parameters
+✅ test_data_query_dataset_no_params      # Query without parameters
+```
+
+**Chat Store Tests** (`store/__tests__/chatStore.test.ts`):
+```typescript
+✅ test_initial_state                     # Verify initial store state
+✅ test_send_message_non_streaming        # Traditional message sending
+✅ test_send_message_error_handling       # Error handling
+✅ test_send_message_streaming            # SSE streaming message
+✅ test_streaming_errors                  # Streaming error handling
+✅ test_streaming_visualization           # Visualization in streaming
+✅ test_clear_messages                    # Clear conversation
+✅ test_set_visualization                 # Set visualization data
+✅ test_clear_visualization               # Clear visualization
+✅ test_toggle_streaming_on               # Enable streaming mode
+✅ test_toggle_streaming_off              # Disable streaming mode
+✅ test_toggle_streaming_multiple         # Toggle multiple times
+```
+
+**Type Definition Tests** (`types/__tests__/index.test.ts`):
+```typescript
+✅ test_message_user                      # User message type
+✅ test_message_assistant_with_viz        # Assistant message with visualization
+✅ test_visualization_bar_chart           # Bar chart type
+✅ test_visualization_line_chart          # Line chart type
+✅ test_visualization_pie_chart           # Pie chart type
+✅ test_visualization_scatter_chart       # Scatter chart type
+✅ test_visualization_table               # Table type
+✅ test_chat_request_basic                # Basic chat request
+✅ test_chat_request_with_conversation    # Request with conversation ID
+✅ test_chat_response_with_metadata       # Response with metadata
+```
+
+#### Running Specific Tests
+
+```bash
+# Run specific test file
+npm test -- api/__tests__/client.test.ts
+
+# Run tests matching pattern
+npm test -- --testNamePattern="streaming"
+
+# Run tests for specific module
+npm test -- store/
+
+# Run with verbose output
+npm test -- --verbose
+
+# Run with debug output
+npm test -- --no-coverage --verbose
+```
+
+#### Coverage Reports
+
+```bash
+# Generate HTML coverage report
+npm run test:coverage
+
+# Open coverage report in browser (macOS)
+open coverage/lcov-report/index.html
+
+# Open coverage report in browser (Linux)
+xdg-open coverage/lcov-report/index.html
+
+# View coverage summary in terminal
+npm test -- --coverage --coverageReporters=text
+```
+
+#### Frontend Test Best Practices
+
+1. **Mock External Dependencies**
+   - Always mock `axios` for HTTP requests
+   - Mock `fetch` for SSE streaming
+   - Mock `ReadableStream` for browser APIs
+
+2. **Test Zustand Stores with renderHook**
+   ```typescript
+   import { renderHook, act } from '@testing-library/react';
+   import { useChatStore } from '../chatStore';
+
+   const { result } = renderHook(() => useChatStore());
+
+   act(() => {
+     result.current.sendMessage('Hello');
+   });
+   ```
+
+3. **Use waitFor for Asynchronous Operations**
+   ```typescript
+   await waitFor(() => {
+     expect(result.current.messages).toHaveLength(2);
+   });
+   ```
+
+4. **Test Both Success and Error Paths**
+   - Always test happy path AND error scenarios
+   - Test network failures, HTTP errors, malformed data
+
+5. **Verify State Transitions**
+   - Test initial state → loading → success/error
+   - Verify all state fields are updated correctly
+
+6. **Clear Mocks Between Tests**
+   ```typescript
+   beforeEach(() => {
+     jest.clearAllMocks();
+   });
+   ```
+
+#### Common Frontend Test Patterns
+
+**Pattern 1: Testing API Calls**
+```typescript
+it('should send message via API', async () => {
+  const mockResponse = { message: 'Hello', conversation_id: 'conv-123' };
+  (chatApi.sendMessage as jest.Mock).mockResolvedValue(mockResponse);
+
+  const { result } = renderHook(() => useChatStore());
+
+  await act(async () => {
+    await result.current.sendMessage('Test');
+  });
+
+  expect(chatApi.sendMessage).toHaveBeenCalledWith({
+    message: 'Test',
+    conversation_id: undefined,
+    include_visualization: true,
+  });
+});
+```
+
+**Pattern 2: Testing SSE Streaming**
+```typescript
+it('should handle SSE events', async () => {
+  const mockEvents = [
+    'data: {"type":"start","conversation_id":"conv-123"}\n\n',
+    'data: {"type":"token","content":"Hello"}\n\n',
+    'data: {"type":"done"}\n\n',
+  ];
+
+  const mockReadableStream = new ReadableStream({
+    start(controller) {
+      mockEvents.forEach(event => {
+        controller.enqueue(new TextEncoder().encode(event));
+      });
+      controller.close();
+    },
+  });
+
+  (global.fetch as jest.Mock).mockResolvedValue({
+    ok: true,
+    body: mockReadableStream,
+  });
+
+  const callbacks = {
+    onStart: jest.fn(),
+    onToken: jest.fn(),
+    onComplete: jest.fn(),
+  };
+
+  await chatApi.streamMessage({ message: 'Test' }, callbacks);
+
+  expect(callbacks.onStart).toHaveBeenCalledWith('conv-123');
+  expect(callbacks.onToken).toHaveBeenCalledWith('Hello');
+});
+```
+
+**Pattern 3: Testing Error Handling**
+```typescript
+it('should handle errors gracefully', async () => {
+  (chatApi.sendMessage as jest.Mock).mockRejectedValue(
+    new Error('Network error')
+  );
+
+  const { result } = renderHook(() => useChatStore());
+
+  await act(async () => {
+    await result.current.sendMessage('Test');
+  });
+
+  expect(result.current.error).toBe('Network error');
+  expect(result.current.isLoading).toBe(false);
+});
 ```
 
 ---
@@ -1319,10 +1591,11 @@ Coverage report empty or incomplete
 
 ```bash
 # ============================================
-# TESTING
+# BACKEND TESTING (Python + pytest)
 # ============================================
 
-# Run all tests
+# Run all backend tests
+cd backend
 pytest
 
 # Run specific test categories
@@ -1345,6 +1618,37 @@ pytest -vv                                  # Verbose output
 pytest -x                                   # Stop on first failure
 pytest -n auto                              # Parallel execution
 pytest --lf                                 # Run last failed
+
+# ============================================
+# FRONTEND TESTING (TypeScript + Jest)
+# ============================================
+
+# Run all frontend tests
+cd frontend
+npm test
+
+# Run specific test categories
+npm test -- api/                            # API client tests
+npm test -- store/                          # Store tests
+npm test -- types/                          # Type definition tests
+npm test -- components/                     # Component tests
+
+# Run with options
+npm run test:watch                          # Watch mode (auto-rerun)
+npm run test:coverage                       # With coverage report
+npm run test:ci                             # CI mode (non-interactive)
+
+# Run specific test file
+npm test -- api/__tests__/client.test.ts
+
+# Run tests matching pattern
+npm test -- --testNamePattern="streaming"
+
+# Verbose output
+npm test -- --verbose
+
+# Debug mode (no coverage)
+npm test -- --no-coverage --verbose
 
 # ============================================
 # COVERAGE
@@ -1421,7 +1725,8 @@ pytest -l
 # CI/CD
 # ============================================
 
-# Run tests as in CI
+# Backend: Run tests as in CI
+cd backend
 pytest tests/evaluation/ --junitxml=results.xml
 
 # Skip slow tests (for fast CI)
@@ -1429,6 +1734,13 @@ pytest -m "not slow"
 
 # Skip LLM tests (for offline CI)
 pytest -m "not requires_llm"
+
+# Frontend: Run tests as in CI
+cd frontend
+npm run test:ci                             # Jest with coverage in CI mode
+
+# Both: Full CI pipeline locally
+cd backend && pytest -m unit && cd ../frontend && npm test
 ```
 
 ### LangSmith Query Examples

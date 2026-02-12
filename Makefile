@@ -1,4 +1,4 @@
-.PHONY: help build up down dev clean logs ingest db-shell test test-smoke test-e2e test-unit test-integration test-security test-evaluation test-evaluation-retrieval test-evaluation-generation test-evaluation-export test-coverage
+.PHONY: help build up down dev clean logs ingest db-shell test test-smoke test-e2e test-unit test-integration test-security test-evaluation test-evaluation-retrieval test-evaluation-generation test-evaluation-export test-coverage test-frontend test-frontend-watch test-frontend-coverage test-all
 
 help:
 	@echo "Available commands:"
@@ -22,7 +22,13 @@ help:
 	@echo "  make test-evaluation-retrieval - Run retrieval metrics tests only"
 	@echo "  make test-evaluation-generation - Run generation metrics tests only"
 	@echo "  make test-evaluation-export   - Run evaluation and export for fine-tuning"
-	@echo "  make test-coverage            - Run tests with coverage report"
+	@echo "  make test-coverage            - Run backend tests with coverage report"
+	@echo ""
+	@echo "Frontend Tests:"
+	@echo "  make test-frontend            - Run frontend Jest tests in Docker"
+	@echo "  make test-frontend-watch      - Run frontend tests in watch mode"
+	@echo "  make test-frontend-coverage   - Run frontend tests with coverage report"
+	@echo "  make test-all                 - Run ALL tests (backend + frontend)"
 
 build:
 	docker-compose build
@@ -104,5 +110,26 @@ test-evaluation-export:
 	docker-compose exec backend python scripts/run_evaluation.py --export-format openai --output-dir ./evaluation_results --generate-mock
 
 test-coverage:
-	@echo "Running tests with coverage report..."
+	@echo "Running backend tests with coverage report..."
 	docker-compose exec backend pytest tests/ --cov=app --cov-report=html --cov-report=term -v
+
+# Frontend Tests
+test-frontend:
+	@echo "Running frontend Jest tests in Docker container..."
+	docker-compose exec frontend npm test
+
+test-frontend-watch:
+	@echo "Running frontend tests in watch mode (local)..."
+	cd frontend && npm run test:watch
+
+test-frontend-coverage:
+	@echo "Running frontend tests with coverage report..."
+	docker-compose exec frontend npm run test:coverage
+
+# Run all tests (backend + frontend)
+test-all:
+	@echo "Running ALL tests (backend + frontend)..."
+	@echo "\n=== Backend Tests ==="
+	docker-compose exec backend pytest tests/unit/ tests/security/ -v --tb=short
+	@echo "\n=== Frontend Tests ==="
+	docker-compose exec frontend npm test

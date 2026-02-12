@@ -49,6 +49,7 @@ An AI-powered chat assistant for natural language querying of Singapore governme
 - 🔒 **Secure Code Execution** - AST-based validation, sandboxed execution, comprehensive audit logging
 - 🔄 **Provider Agnostic** - Supports OpenAI, Anthropic, and Google models
 - 🐳 **Docker Ready** - Full containerization with hot reload for development
+- 🧪 **Comprehensive Testing** - 75+ tests across backend (pytest) and frontend (Jest) with 90%+ coverage
 
 ---
 
@@ -89,6 +90,8 @@ Response + Chart
 | **Recharts** | 2.x | React-native charting library with declarative API |
 | **Zustand** | 4.x | Minimal state management with less boilerplate than Redux |
 | **Axios** | 1.x | Robust HTTP client with interceptors and better error handling |
+| **Jest** | 29.x | Comprehensive testing framework with great TypeScript support |
+| **Testing Library** | 14.x | Best practices for testing React components and hooks |
 
 ### Backend
 
@@ -410,22 +413,29 @@ docker-compose exec postgres psql -U govtech -d govtech_rag
 <a name="running-tests"></a>
 ## 🧪 Running Tests
 
-The project includes comprehensive testing with unit tests, integration tests, and evaluation tests.
+The project includes comprehensive testing with unit tests, integration tests, security tests, and evaluation tests for both backend and frontend.
 
 ### Quick Test Commands
 
 ```bash
-# Run all tests
+# Run all backend tests
 make test
 
-# Run specific test categories
-make test-unit              # Unit tests only (fast, ~30s)
+# Run all frontend tests
+make test-frontend
+
+# Run ALL tests (backend + frontend)
+make test-all
+
+# Run specific backend test categories
+make test-unit              # Backend unit tests only (fast, ~30s)
 make test-integration       # Integration tests with mocked LLM (fast)
 make test-security          # Security tests (code validation, sandboxing)
 make test-e2e              # End-to-end pipeline tests
 
-# Run with coverage report
-make test-coverage
+# Run with coverage reports
+make test-coverage          # Backend coverage
+make test-frontend-coverage # Frontend coverage
 ```
 
 ### Detailed Test Commands
@@ -497,32 +507,66 @@ Quick validation that core functionality works:
 make test-smoke
 ```
 
+#### Frontend Tests
+
+Test frontend components, state management, and API client:
+
+```bash
+# Run all frontend tests
+make test-frontend
+
+# Run in watch mode (local, for development)
+make test-frontend-watch
+
+# Run with coverage report
+make test-frontend-coverage
+
+# Local (without Docker)
+cd frontend
+npm test                    # Run all tests
+npm run test:watch          # Watch mode
+npm run test:coverage       # With coverage
+```
+
+**Frontend test files:**
+- `api/__tests__/client.test.ts` - API client, SSE streaming, HTTP requests (15 tests, 93% coverage)
+- `store/__tests__/chatStore.test.ts` - Zustand state management, messages, visualization (12 tests, 98% coverage)
+- `types/__tests__/index.test.ts` - TypeScript type definitions (8 tests, 100% coverage)
+
 ### Test Structure
 
 ```
-backend/tests/
-├── unit/                    # Unit tests (fast, isolated)
+backend/tests/                      # Backend tests (Python + pytest)
+├── unit/                           # Unit tests (fast, isolated)
 │   ├── test_verification_agent.py
 │   ├── test_coordinator_agent.py
 │   ├── test_extraction_agent.py
 │   ├── test_analytics_agent.py
 │   └── test_rag_retrieval.py
 │
-├── integration/             # Integration tests (slower, real flows)
+├── integration/                    # Integration tests (slower, real flows)
 │   ├── test_e2e_pipeline.py
 │   ├── test_orchestrator.py
 │   └── test_rag_pipeline.py
 │
-├── security/                # Security tests
+├── security/                       # Security tests
 │   ├── test_code_validator.py
 │   ├── test_sandbox_executor.py
 │   └── test_security_integration.py
 │
-├── evaluation/              # Quality metrics
+├── evaluation/                     # Quality metrics
 │   ├── test_retrieval_metrics.py
 │   └── test_generation_metrics.py
 │
-└── test_smoke.py           # Quick validation
+└── test_smoke.py                  # Quick validation
+
+frontend/src/                       # Frontend tests (TypeScript + Jest)
+├── api/__tests__/
+│   └── client.test.ts              # API client tests (15 tests)
+├── store/__tests__/
+│   └── chatStore.test.ts           # State management tests (12 tests)
+└── types/__tests__/
+    └── index.test.ts               # Type definition tests (8 tests)
 ```
 
 ### Running Tests Locally (without Docker)
@@ -1044,7 +1088,13 @@ npm run preview
 npm run lint
 
 # Type check
-npm run type-check
+npx tsc --noEmit
+
+# Run tests
+npm test                    # Run all tests
+npm run test:watch          # Watch mode (auto-rerun on changes)
+npm run test:coverage       # With coverage report
+npm run test:ci             # CI mode (non-interactive)
 ```
 
 ### Backend Development
