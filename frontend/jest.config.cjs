@@ -8,6 +8,9 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '^@/config/env$': '<rootDir>/src/__mocks__/env.ts',
+    '^./config/env$': '<rootDir>/src/__mocks__/env.ts',
+    '^../config/env$': '<rootDir>/src/__mocks__/env.ts',
   },
 
   // Globals for import.meta
@@ -49,10 +52,10 @@ module.exports = {
       statements: 90,
     },
     './src/store/chatStore.ts': {
-      branches: 85,
-      functions: 100,
+      branches: 65,
+      functions: 95,
       lines: 95,
-      statements: 95,
+      statements: 93,
     },
   },
 

@@ -1,7 +1,8 @@
 import React, { useRef, useEffect } from 'react';
-import { MessageSquare, Trash2, Loader2 } from 'lucide-react';
+import { MessageSquare, Trash2 } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import { AgentStatusIndicator } from './AgentStatusIndicator';
 import { useChatStore } from '../store/chatStore';
 
 export const ChatPanel: React.FC = () => {
@@ -60,19 +61,8 @@ export const ChatPanel: React.FC = () => {
             ))}
 
             {isLoading && (
-              <div className="flex gap-4 p-4 bg-gray-50">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700 text-white
-                               flex items-center justify-center">
-                  <Loader2 size={18} className="animate-spin" />
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-600 mb-1">
-                    Assistant
-                  </div>
-                  <div className="text-gray-500 animate-pulse">
-                    Thinking...
-                  </div>
-                </div>
+              <div className="p-4">
+                <AgentStatusIndicator />
               </div>
             )}
 

@@ -639,3 +639,23 @@ def assert_similarity():
         )
 
     return _assert_similarity
+
+
+# ============================================================================
+# HTTP Client fixtures for API testing
+# ============================================================================
+
+
+@pytest.fixture
+async def async_client() -> AsyncGenerator:
+    """
+    Provide async HTTP client for API testing.
+
+    Uses httpx.AsyncClient for testing FastAPI endpoints.
+    """
+    from httpx import AsyncClient
+
+    from app.main import app
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        yield client

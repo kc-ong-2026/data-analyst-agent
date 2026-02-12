@@ -6,6 +6,14 @@ export interface Message {
   visualization?: VisualizationData;
 }
 
+export interface AgentStageInfo {
+  agent: string;
+  status: 'pending' | 'running' | 'complete' | 'error';
+  message?: string;
+  startTime?: number;
+  endTime?: number;
+}
+
 export interface VisualizationData {
   chart_type: 'bar' | 'line' | 'pie' | 'scatter' | 'table';
   title: string;

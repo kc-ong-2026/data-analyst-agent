@@ -105,3 +105,142 @@ All LLM and embedding configuration (server-side only, not exposed to frontend):
 - `api_spec/singapore_environment_api_specs/` - Weather, air quality, flood API specs (JSON)
 
 Datasets are accessed via `DataService.get_available_datasets()` and loaded with pandas.
+
+## Post-Change Validation: Linting & Tests
+
+**IMPORTANT:** After making any code changes, Claude Code MUST fix all linting issues and ensure all tests pass. This validation happens automatically as part of the development workflow - commits are left for the user to create manually.
+
+### Validation Workflow
+
+After any changes:
+1. ✅ **Fix linting** - Auto-fix with Black/Ruff (backend) and ESLint (frontend)
+2. ✅ **Run tests** - Execute unit and integration tests to verify changes
+3. ✅ **Report status** - Summarize what passed/failed
+4. ⏸️ **Do NOT commit** - User handles git commits manually
+
+### Required Checks
+
+### Backend Checks
+
+```bash
+cd backend
+
+# 1. Ruff linter (Python linting)
+ruff check .
+
+# 2. Black formatter (Python code formatting)
+black --check .
+
+# 3. Type checking (mypy - optional, continues on error in CI)
+mypy app/ --ignore-missing-imports
+
+# 4. Unit tests (CI/CD: backend-unit-tests job)
+pytest tests/unit/ -v --tb=short --maxfail=5
+
+# 5. Integration tests (CI/CD: backend-integration-tests job)
+# IMPORTANT: Only run tests specified in CI/CD pipeline
+# Start postgres first: docker-compose up -d postgres
+pytest tests/integration/test_e2e_pipeline.py tests/integration/test_orchestrator.py -v --tb=short
+
+# 6. Security tests (CI/CD: backend-security-tests job)
+pytest tests/security/ -v --tb=short --maxfail=5
+```
+
+### Frontend Checks
+
+```bash
+cd frontend
+
+# 1. ESLint (JavaScript/TypeScript linting)
+npm run lint
+
+# 2. TypeScript type check
+npx tsc --noEmit
+
+# 3. Jest tests with coverage (CI/CD: frontend-unit-tests job)
+# IMPORTANT: Use CI test command to match CI/CD pipeline
+npm run test:ci
+```
+
+### Quick Validation (All Checks)
+
+Run everything at once:
+
+```bash
+# Backend (from project root)
+cd backend && \
+  ruff check . && \
+  black --check . && \
+  pytest tests/unit/ -v --tb=short --maxfail=5 && \
+  pytest tests/integration/ -v --tb=short && \
+  echo "✅ Backend checks passed!"
+
+# Frontend (from project root)
+cd frontend && \
+  npm run lint && \
+  npx tsc --noEmit && \
+  npm test -- --passWithNoTests && \
+  echo "✅ Frontend checks passed!"
+```
+
+### Docker-based Validation (Matches CI Exactly)
+
+Use Docker to run checks in the same environment as CI:
+
+```bash
+# Backend lint and tests (matches CI/CD exactly)
+docker-compose -f docker-compose.yml run --rm backend bash -c "
+  ruff check . && \
+  black --check . && \
+  pytest tests/unit/ -v --tb=short && \
+  pytest tests/integration/test_e2e_pipeline.py tests/integration/test_orchestrator.py -v --tb=short && \
+  pytest tests/security/ -v --tb=short
+"
+
+# Frontend lint and tests
+docker-compose -f docker-compose.yml run --rm frontend bash -c "
+  npm run lint && \
+  npx tsc --noEmit && \
+  npm test -- --passWithNoTests
+"
+```
+
+### Auto-fix Common Issues
+
+```bash
+# Backend: Auto-format with Black
+cd backend && black .
+
+# Backend: Auto-fix Ruff issues
+cd backend && ruff check . --fix
+
+# Frontend: Auto-fix ESLint issues
+cd frontend && npm run lint -- --fix
+```
+
+### Success Criteria (After Changes)
+
+Claude Code ensures these all pass after any modifications (matching CI/CD pipeline):
+- ✅ `ruff check .` → All checks passed!
+- ✅ `black --check .` → All done! X files would be left unchanged
+- ✅ `npm run lint` → No output (zero warnings, zero errors)
+- ✅ `npx tsc --noEmit` → No output (zero errors)
+- ✅ Unit tests pass → `pytest tests/unit/` succeeds
+- ✅ Integration tests pass → `pytest tests/integration/test_e2e_pipeline.py tests/integration/test_orchestrator.py` succeeds
+- ✅ Security tests pass → `pytest tests/security/` succeeds
+- ✅ Frontend tests pass → `npm run test:ci` succeeds
+
+**Note:** Git commits remain manual - Claude Code only validates code quality.
+
+### CI/CD Pipeline Jobs
+
+The GitHub Actions pipeline (`.github/workflows/ci.yml`) runs these jobs:
+1. **backend-lint** - Ruff + Black + mypy
+2. **backend-unit-tests** - Unit tests with coverage
+3. **backend-integration-tests** - Integration tests (orchestrator, e2e)
+4. **backend-security-tests** - Security validation tests
+5. **frontend-lint** - ESLint + TypeScript check
+6. **frontend-unit-tests** - Jest tests with coverage
+7. **docker-build** - Build both Docker images
+
+All jobs must pass for `ci-success` to complete.

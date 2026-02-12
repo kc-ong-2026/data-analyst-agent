@@ -40,8 +40,6 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             try:
                 # Immediate acknowledgment
                 yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation_id})}\n\n"
-                yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'running', 'message': 'Validating query...'})}\n\n"
-                await asyncio.sleep(0.05)
 
                 # CONTEXT APPEND: Check if this is a clarification response
                 combined_message = request.message
@@ -89,44 +87,81 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                             logger.info(f"   Current response: '{request.message}'")
                             logger.info(f"   Combined query: '{combined_message}'")
 
-                # Execute workflow with combined message
-                orchestrator = get_orchestrator()
-                result = await orchestrator.execute(message=combined_message, chat_history=[])
+                # Execute workflow with combined message using real-time callbacks
+                status_queue: asyncio.Queue = asyncio.Queue()
+
+                async def queue_callback(status: dict):
+                    """Queue status updates for streaming."""
+                    await status_queue.put(status)
+
+                async def run_orchestrator():
+                    """Run orchestrator in background and put result in queue."""
+                    try:
+                        orchestrator = get_orchestrator(status_callback=queue_callback)
+                        result = await orchestrator.execute(
+                            message=combined_message, chat_history=[]
+                        )
+                        await status_queue.put({"type": "done", "result": result})
+                    except Exception as e:
+                        await status_queue.put({"type": "error", "error": str(e)})
+
+                # Start orchestrator in background
+                orchestrator_task = asyncio.create_task(run_orchestrator())
+
+                # Stream events as they arrive
+                result = None
+                while True:
+                    status = await status_queue.get()
+
+                    if status["type"] == "agent_start":
+                        # Agent starting
+                        event_data = {
+                            "type": "agent",
+                            "agent": status["agent"],
+                            "status": "running",
+                            "message": status.get("message", ""),
+                        }
+                        yield f"data: {json.dumps(event_data)}\n\n"
+
+                    elif status["type"] == "agent_complete":
+                        # Agent completed
+                        event_data = {
+                            "type": "agent",
+                            "agent": status["agent"],
+                            "status": "complete",
+                        }
+                        yield f"data: {json.dumps(event_data)}\n\n"
+
+                    elif status["type"] == "done":
+                        # Orchestration complete
+                        result = status["result"]
+                        break
+
+                    elif status["type"] == "error":
+                        # Orchestration error
+                        raise Exception(status["error"])
+
+                # Wait for orchestrator to finish
+                await orchestrator_task
 
                 # Check validation
                 validation = result.get("query_validation", {})
                 if validation and not validation.get("valid", True):
                     # Validation failed - stream error
                     error_msg = validation.get("reason", "Query validation failed")
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'complete'})}\n\n"
-
-                    for char in error_msg:
-                        yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
-                        await asyncio.sleep(0.008)
-
                     full_message = error_msg
                 else:
-                    # Success - show progression
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'verification', 'status': 'complete'})}\n\n"
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'coordinator', 'status': 'running'})}\n\n"
-                    await asyncio.sleep(0.05)
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'coordinator', 'status': 'complete'})}\n\n"
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'extraction', 'status': 'running'})}\n\n"
-                    await asyncio.sleep(0.05)
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'extraction', 'status': 'complete'})}\n\n"
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'analytics', 'status': 'running'})}\n\n"
-                    await asyncio.sleep(0.05)
-                    yield f"data: {json.dumps({'type': 'agent', 'agent': 'analytics', 'status': 'complete'})}\n\n"
-
-                    # Stream response
+                    # Success - stream response
                     full_message = result.get("message", "Analysis complete")
-                    for char in full_message:
-                        yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
-                        await asyncio.sleep(0.008)
 
-                    # Send visualization
-                    if request.include_visualization and result.get("visualization"):
-                        yield f"data: {json.dumps({'type': 'visualization', 'visualization': result['visualization']})}\n\n"
+                # Stream response text
+                for char in full_message:
+                    yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
+                    await asyncio.sleep(0.008)
+
+                # Send visualization
+                if request.include_visualization and result.get("visualization"):
+                    yield f"data: {json.dumps({'type': 'visualization', 'visualization': result['visualization']})}\n\n"
 
                 # Store conversation
                 if conversation_id not in conversations:

@@ -1,6 +1,7 @@
 """Agent Orchestrator - Manages the multi-agent LangGraph workflow."""
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain_core.messages import HumanMessage
@@ -33,6 +34,7 @@ class AgentOrchestrator:
         llm_provider: str | None = None,
         llm_model: str | None = None,
         max_iterations: int = 10,
+        status_callback: Callable[[dict], Awaitable[None]] | None = None,
     ):
         """Initialize the orchestrator with agent instances.
 
@@ -40,10 +42,12 @@ class AgentOrchestrator:
             llm_provider: LLM provider for all agents
             llm_model: LLM model for all agents
             max_iterations: Maximum number of agent iterations
+            status_callback: Optional callback for agent status updates
         """
         self.llm_provider = llm_provider
         self.llm_model = llm_model
         self.max_iterations = max_iterations
+        self.status_callback = status_callback
 
         # Load agent-specific model configurations from config
         from app.config import config as app_config
@@ -212,6 +216,13 @@ class AgentOrchestrator:
         logger.info("=" * 60)
         logger.info("Running VERIFICATION AGENT")
         logger.info("=" * 60)
+
+        # Emit start event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_start", "agent": "verification", "message": "Validating query..."}
+            )
+
         agent = self.agents[AgentRole.VERIFICATION]
         agent_state = AgentState.from_graph_state(state)
 
@@ -223,6 +234,12 @@ class AgentOrchestrator:
 
         # Extract validation from response.data (not from state.to_graph_state!)
         validation = response.data.get("validation", {}) if response.data else {}
+
+        # Emit complete event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_complete", "agent": "verification", "success": response.success}
+            )
 
         # Merge response state back
         result = {
@@ -251,6 +268,13 @@ class AgentOrchestrator:
         logger.info("=" * 60)
         logger.info("Running COORDINATOR AGENT")
         logger.info("=" * 60)
+
+        # Emit start event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_start", "agent": "coordinator", "message": "Planning analysis..."}
+            )
+
         agent = self.agents[AgentRole.COORDINATOR]
         agent_state = AgentState.from_graph_state(state)
 
@@ -259,6 +283,12 @@ class AgentOrchestrator:
         logger.info(
             f"Coordinator result: success={response.success}, message={response.message[:100] if response.message else 'N/A'}..."
         )
+
+        # Emit complete event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_complete", "agent": "coordinator", "success": response.success}
+            )
 
         # Merge response state back
         if response.state:
@@ -283,6 +313,13 @@ class AgentOrchestrator:
         logger.info("=" * 60)
         logger.info("Running EXTRACTION AGENT")
         logger.info("=" * 60)
+
+        # Emit start event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_start", "agent": "extraction", "message": "Extracting data..."}
+            )
+
         agent = self.agents[AgentRole.EXTRACTION]
         agent_state = AgentState.from_graph_state(state)
 
@@ -299,6 +336,12 @@ class AgentOrchestrator:
         logger.info(
             f"Extraction result: success={response.success}, data_sources={extracted_count}"
         )
+
+        # Emit complete event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_complete", "agent": "extraction", "success": response.success}
+            )
 
         # Merge response state back
         if response.state:
@@ -320,6 +363,13 @@ class AgentOrchestrator:
         logger.info("=" * 60)
         logger.info("Running ANALYTICS AGENT")
         logger.info("=" * 60)
+
+        # Emit start event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_start", "agent": "analytics", "message": "Analyzing results..."}
+            )
+
         agent = self.agents[AgentRole.ANALYTICS]
         agent_state = AgentState.from_graph_state(state)
 
@@ -328,6 +378,12 @@ class AgentOrchestrator:
         logger.info(
             f"Analytics result: success={response.success}, has_visualization={response.visualization is not None}"
         )
+
+        # Emit complete event
+        if self.status_callback:
+            await self.status_callback(
+                {"type": "agent_complete", "agent": "analytics", "success": response.success}
+            )
 
         # Merge response state back
         result = {
@@ -516,9 +572,11 @@ class AgentOrchestrator:
 def get_orchestrator(
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    status_callback: Callable[[dict], Awaitable[None]] | None = None,
 ) -> AgentOrchestrator:
     """Factory function to create an orchestrator."""
     return AgentOrchestrator(
         llm_provider=llm_provider,
         llm_model=llm_model,
+        status_callback=status_callback,
     )

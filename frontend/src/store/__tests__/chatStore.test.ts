@@ -28,6 +28,8 @@ describe('chatStore', () => {
         currentAgent: null,
         streamingMessage: '',
         useStreaming: true,
+        agentStages: [],
+        currentStage: null,
       });
     });
   });
@@ -45,6 +47,8 @@ describe('chatStore', () => {
       expect(result.current.currentAgent).toBeNull();
       expect(result.current.streamingMessage).toBe('');
       expect(result.current.useStreaming).toBe(true);
+      expect(result.current.agentStages).toEqual([]);
+      expect(result.current.currentStage).toBeNull();
     });
   });
 
@@ -299,6 +303,159 @@ describe('chatStore', () => {
       });
 
       expect(result.current.useStreaming).toBe(true);
+    });
+  });
+
+  describe('Agent Stage Tracking', () => {
+    it('should track agent stages during streaming', async () => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
+        callbacks.onStart('conv-stages');
+        callbacks.onAgent('verification', 'running', 'Validating query...');
+        callbacks.onAgent('verification', 'complete');
+        callbacks.onAgent('coordinator', 'running', 'Planning analysis...');
+        callbacks.onAgent('coordinator', 'complete');
+        callbacks.onToken('Result');
+        callbacks.onComplete('Result');
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.sendMessage('Test query');
+      });
+
+      // Should have tracked 2 agents
+      expect(result.current.agentStages).toHaveLength(2);
+
+      // Verify verification stage
+      const verificationStage = result.current.agentStages.find(s => s.agent === 'verification');
+      expect(verificationStage).toBeDefined();
+      expect(verificationStage?.status).toBe('complete');
+      // Message may be undefined on complete event, that's okay
+      expect(verificationStage?.agent).toBe('verification');
+
+      // Verify coordinator stage
+      const coordinatorStage = result.current.agentStages.find(s => s.agent === 'coordinator');
+      expect(coordinatorStage).toBeDefined();
+      expect(coordinatorStage?.status).toBe('complete');
+      expect(coordinatorStage?.agent).toBe('coordinator');
+    });
+
+    it('should update currentStage when agent starts', async () => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
+        callbacks.onStart('conv-current');
+        callbacks.onAgent('verification', 'running', 'Validating query...');
+        // Don't complete immediately so we can check currentStage
+        await new Promise(resolve => setTimeout(resolve, 10));
+        callbacks.onAgent('verification', 'complete');
+        callbacks.onComplete('Done');
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.sendMessage('Test');
+      });
+
+      // After completion, currentStage should be null
+      expect(result.current.currentStage).toBeNull();
+    });
+
+    it('should reset agent stages when starting new message', async () => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
+        callbacks.onStart('conv-reset');
+        callbacks.onAgent('verification', 'running', 'Validating...');
+        callbacks.onAgent('verification', 'complete');
+        callbacks.onComplete('Done');
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      // First message
+      await act(async () => {
+        await result.current.sendMessage('First query');
+      });
+
+      expect(result.current.agentStages).toHaveLength(1);
+
+      // Second message should reset stages
+      await act(async () => {
+        await result.current.sendMessage('Second query');
+      });
+
+      // Stages should have been reset and repopulated
+      expect(result.current.agentStages).toHaveLength(1);
+      expect(result.current.agentStages[0].agent).toBe('verification');
+    });
+
+    it('should clear agent stages when clearing messages', async () => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
+        callbacks.onStart('conv-clear-stages');
+        callbacks.onAgent('verification', 'running', 'Validating...');
+        callbacks.onAgent('verification', 'complete');
+        callbacks.onComplete('Done');
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.sendMessage('Test');
+      });
+
+      expect(result.current.agentStages).toHaveLength(1);
+
+      act(() => {
+        result.current.clearMessages();
+      });
+
+      expect(result.current.agentStages).toEqual([]);
+      expect(result.current.currentStage).toBeNull();
+    });
+
+    it('should handle multiple status updates for same agent', async () => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
+        callbacks.onStart('conv-multi');
+        callbacks.onAgent('verification', 'running', 'Starting...');
+        callbacks.onAgent('verification', 'running', 'Still running...');
+        callbacks.onAgent('verification', 'complete');
+        callbacks.onComplete('Done');
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.sendMessage('Test');
+      });
+
+      // Should only have one entry per agent (not duplicates)
+      expect(result.current.agentStages).toHaveLength(1);
+      expect(result.current.agentStages[0].agent).toBe('verification');
+      expect(result.current.agentStages[0].status).toBe('complete');
+    });
+
+    it('should track timing for agent stages', async () => {
+      (chatApi.streamMessage as jest.Mock).mockImplementation(async (_request, callbacks) => {
+        callbacks.onStart('conv-timing');
+        callbacks.onAgent('verification', 'running', 'Validating...');
+        await new Promise(resolve => setTimeout(resolve, 50)); // Simulate delay
+        callbacks.onAgent('verification', 'complete');
+        callbacks.onComplete('Done');
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.sendMessage('Test');
+      });
+
+      const verificationStage = result.current.agentStages[0];
+      expect(verificationStage.startTime).toBeDefined();
+      expect(verificationStage.endTime).toBeDefined();
+
+      // Timing should be valid
+      if (verificationStage.startTime && verificationStage.endTime) {
+        expect(verificationStage.endTime).toBeGreaterThanOrEqual(verificationStage.startTime);
+      }
     });
   });
 });

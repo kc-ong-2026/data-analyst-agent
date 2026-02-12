@@ -1,6 +1,18 @@
 import { create } from 'zustand';
-import type { Message, VisualizationData } from '../types';
+import type { Message, VisualizationData, AgentStageInfo } from '../types';
 import { chatApi } from '../api/client';
+
+const STAGE_LABELS: Record<string, string> = {
+  verification: 'Verifying query',
+  coordinator: 'Planning analysis',
+  extraction: 'Extracting data',
+  analytics: 'Analyzing results',
+};
+
+function getHumanReadableStage(agent: string, status: string): string | null {
+  if (status !== 'running') return null;
+  return STAGE_LABELS[agent] || agent;
+}
 
 interface ChatState {
   messages: Message[];
@@ -12,6 +24,8 @@ interface ChatState {
   currentAgent: string | null;
   streamingMessage: string;
   useStreaming: boolean;
+  agentStages: AgentStageInfo[];
+  currentStage: string | null;
 
   // Actions
   sendMessage: (content: string) => Promise<void>;
@@ -30,6 +44,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentAgent: null,
   streamingMessage: '',
   useStreaming: true, // Enable streaming by default
+  agentStages: [],
+  currentStage: null,
 
   sendMessage: async (content: string) => {
     const { conversationId, useStreaming } = get();
@@ -49,6 +65,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       streamingMessage: '',
       currentAgent: null,
+      agentStages: [],
+      currentStage: null,
     }));
 
     try {
@@ -70,7 +88,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             onAgent: (agent, status, message) => {
               console.log(`[Stream] Agent: ${agent} - ${status}`, message);
-              set({ currentAgent: status === 'running' ? agent : null });
+
+              set((state) => {
+                const newStages = [...state.agentStages];
+                const existingIndex = newStages.findIndex(s => s.agent === agent);
+
+                const stageInfo: AgentStageInfo = {
+                  agent,
+                  status: status as 'running' | 'complete',
+                  message,
+                  startTime: status === 'running' ? Date.now() : undefined,
+                  endTime: status === 'complete' ? Date.now() : undefined,
+                };
+
+                if (existingIndex >= 0) {
+                  // Update existing stage
+                  newStages[existingIndex] = {
+                    ...newStages[existingIndex],
+                    ...stageInfo,
+                    startTime: newStages[existingIndex].startTime || stageInfo.startTime,
+                  };
+                } else {
+                  // Add new stage
+                  newStages.push(stageInfo);
+                }
+
+                return {
+                  agentStages: newStages,
+                  currentStage: getHumanReadableStage(agent, status),
+                  currentAgent: status === 'running' ? agent : null,
+                };
+              });
             },
 
             onToken: (token) => {
@@ -133,6 +181,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 isStreaming: false,
                 streamingMessage: '',
                 currentAgent: null,
+                currentStage: null,
               });
             },
 
@@ -144,6 +193,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 error,
                 streamingMessage: '',
                 currentAgent: null,
+                currentStage: null,
               });
             },
           }
@@ -193,6 +243,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       streamingMessage: '',
       currentAgent: null,
+      agentStages: [],
+      currentStage: null,
     });
   },
 
