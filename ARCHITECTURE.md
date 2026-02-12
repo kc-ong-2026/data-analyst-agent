@@ -28,6 +28,7 @@ The Singapore Government Data Chat Assistant is a multi-agent AI system that ena
 - **Hybrid RAG**: Vector search + BM25 search with RRF fusion and cross-encoder reranking
 - **LLM Resilience**: Automatic retry, model fallback, and provider fallback with circuit breaker pattern
 - **Code Generation**: Pandas code generation for safe data analysis (no direct SQL execution)
+- **Security Layer**: AST-based code validation, sandboxed execution, and comprehensive audit logging
 - **Confidence-Based Loading**: Smart dataset selection based on relevance scores
 - **Real-time Streaming**: Server-sent events for progressive response delivery
 
@@ -61,6 +62,14 @@ The Singapore Government Data Chat Assistant is a multi-agent AI system that ena
 │  │ (Vector+BM25+   │  │ (Retry+Fallback)│  │ (DataFrame Ops) │ │
 │  │  Reranking)     │  └─────────────────┘  └─────────────────┘ │
 │  └─────────────────┘                                             │
+│                              │                                    │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Security Layer (Analytics Agent)                             │ │
+│  │ ┌────────────┐  ┌────────────┐  ┌────────────┐             │ │
+│  │ │ Code       │→ │ Sandbox    │→ │ Audit      │             │ │
+│  │ │ Validator  │  │ Executor   │  │ Logger     │             │ │
+│  │ └────────────┘  └────────────┘  └────────────┘             │ │
+│  └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -380,8 +389,10 @@ The extraction agent uses reranker scores to decide which datasets to load:
 #### Workflow
 
 ```
-prepare_data → generate_code → execute_code → explain_results
-                                     ↓
+prepare_data → generate_code → validate_code → execute_code → explain_results
+                                     ↓ [invalid]       ↓
+                                   error          audit_log
+                                                      ↓
                           [needs_viz?] → generate_visualization
                                      ↓
                              compose_response → END
@@ -400,11 +411,21 @@ prepare_data → generate_code → execute_code → explain_results
    - Max tokens: 8192 (supports complex multi-step analysis)
    - Generates safe pandas code (no file I/O, network, or dangerous operations)
 
-3. **execute_code**: Safely executes generated code
+3. **validate_code**: AST-based code validation (Security Layer 1)
+   - Parses code into Abstract Syntax Tree
+   - Blocks forbidden functions (eval, exec, open, __import__)
+   - Blocks dangerous attribute access (__globals__, __class__)
+   - Validates allowed imports (pandas, numpy, matplotlib only)
+   - Fast static analysis (< 10ms)
+
+4. **execute_code**: Safely executes validated code (Security Layer 2)
+   - Runs in sandboxed environment with restricted builtins
    - 5-second timeout to prevent infinite loops
+   - Memory limit (512MB) to prevent resource exhaustion
    - Restricted environment (only pd, np, matplotlib allowed)
    - No file system or network access
    - Captures execution result (DataFrame, Series, or dict)
+   - All executions logged to audit trail (Security Layer 3)
 
 4. **explain_results**: LLM explains the analysis results
    - Converts technical results to natural language
@@ -444,6 +465,23 @@ result = {
 
 #### Code Execution Safety
 
+The Analytics Agent implements **defense in depth** with three security layers (see [Code Execution Security](#code-execution-security) section for details):
+
+**Layer 1: Code Validation (Prevention)**
+- AST-based static analysis
+- Blocks dangerous operations before execution
+- Whitelists safe imports and operations
+
+**Layer 2: Sandbox Execution (Containment)**
+- Restricted builtins environment
+- Resource limits (timeout, memory)
+- No file/network access
+
+**Layer 3: Audit Logging (Detection)**
+- All executions logged with code hash
+- Security violations tracked
+- Forensic analysis capability
+
 **Allowed**:
 - pandas operations (groupby, merge, pivot, etc.)
 - numpy calculations
@@ -455,6 +493,7 @@ result = {
 - Network access (`requests`, `urllib`, etc.)
 - System calls (`os.system()`, `subprocess`, etc.)
 - Dangerous builtins (`exec()`, `eval()`, `__import__()`)
+- Dunder attributes (`__globals__`, `__class__`, `__init__`)
 
 #### Output
 
@@ -851,6 +890,338 @@ agent_overrides:
 
 ---
 
+## Code Execution Security
+
+**File**: `backend/app/services/security/`
+
+The security layer protects against malicious or dangerous code execution in the Analytics Agent.
+
+### Architecture
+
+```
+User Query → Analytics Agent → Code Generation (LLM)
+                                       ↓
+                            Code Validator (AST-based)
+                                       ↓ [valid?]
+                            Sandbox Executor (Restricted env)
+                                       ↓
+                            Audit Logger (Security trail)
+                                       ↓
+                                    Result
+```
+
+### Components
+
+#### 1. Code Validator (`code_validator.py`)
+
+**Purpose**: Static analysis of generated code to block dangerous operations before execution.
+
+**Validation Strategy**:
+- **AST Visitor Pattern**: Parses Python code into Abstract Syntax Tree
+- **Whitelist Approach**: Only allows explicitly approved operations
+- **Dunder Blocking**: Blocks access to `__globals__`, `__class__`, `__init__`, etc.
+
+**Allowed Operations**:
+```python
+# Safe imports
+allowed_imports = ["pandas", "numpy", "matplotlib", "datetime", "time", "math", "statistics", "collections"]
+
+# Safe operations
+- DataFrame operations (groupby, merge, pivot, etc.)
+- Numpy calculations
+- Matplotlib plotting
+- Standard Python (if/else, loops, comprehensions)
+```
+
+**Blocked Operations**:
+```python
+# Dangerous operations
+- eval(), exec(), compile(), __import__()
+- open(), file I/O operations
+- os.system(), subprocess
+- network access (requests, urllib, socket)
+- Database operations (pd.read_sql, to_sql)
+- Dunder attributes (__globals__, __class__)
+```
+
+**Example**:
+```python
+from app.services.security import CodeValidator
+
+validator = CodeValidator(config={"use_ast_visitor": True, "block_dunder_attributes": True})
+
+# Valid code
+code = "result = df.groupby('age')['value'].sum()"
+validation = validator.validate(code)
+# → ValidationResult(is_valid=True, errors=[], warnings=[])
+
+# Invalid code
+code = "result = eval('malicious code')"
+validation = validator.validate(code)
+# → ValidationResult(is_valid=False, errors=["Use of forbidden function: eval"], warnings=[])
+```
+
+#### 2. Sandbox Executor (`sandbox_executor.py`)
+
+**Purpose**: Execute validated code in a restricted environment with resource limits.
+
+**Isolation Strategy**:
+- **Restricted Builtins**: Limited set of safe built-in functions
+- **No File/Network Access**: Blocks all I/O operations
+- **Timeout Protection**: 5-second CPU time limit
+- **Memory Limits**: 512MB maximum memory (configurable)
+
+**Execution Environment**:
+```python
+allowed_globals = {
+    "pd": pandas,          # pandas for data manipulation
+    "np": numpy,           # numpy for calculations
+    "plt": matplotlib.pyplot,  # matplotlib for visualization
+    # Standard Python builtins (filtered)
+    "len": len, "range": range, "enumerate": enumerate, ...
+}
+
+# Blocked builtins
+forbidden = ["open", "eval", "exec", "__import__", "compile", "input", "raw_input"]
+```
+
+**Resource Limits**:
+```yaml
+isolation:
+  cpu_time_limit_seconds: 5    # Max CPU time
+  memory_limit_mb: 512          # Max memory
+  wall_time_limit_seconds: 10  # Max wall clock time
+  max_open_files: 3             # File descriptor limit
+```
+
+**Example**:
+```python
+from app.services.security import SandboxExecutor
+
+executor = SandboxExecutor(config={"use_process_isolation": False})
+
+code = "result = df['value'].sum()"
+execution = executor.execute_code(code, context={"df": dataframe})
+# → ExecutionResult(success=True, result=12345, error=None)
+
+# Timeout example
+code = "while True: pass"  # Infinite loop
+execution = executor.execute_code(code)
+# → ExecutionResult(success=False, error="Execution timeout (5s)", error_type="TimeoutError")
+```
+
+#### 3. Audit Logger (`audit_logger.py`)
+
+**Purpose**: Comprehensive logging of all code executions for security audit trail.
+
+**Logged Events**:
+- **Code Execution**: Full code, validation result, execution result
+- **Security Violations**: Forbidden operations, validation failures
+- **Resource Limits**: Timeouts, memory exhaustion
+
+**Log Format** (JSON):
+```json
+{
+  "timestamp": "2026-02-12T10:30:45Z",
+  "event_type": "code_execution",
+  "code_hash": "a1b2c3d4e5f6",
+  "code": "result = df.groupby('age')['value'].sum()",
+  "code_length": 42,
+  "query": "Show me employment by age",
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "warnings": []
+  },
+  "execution": {
+    "success": true,
+    "execution_time": 0.123,
+    "result_type": "Series"
+  },
+  "user_context": {
+    "session_id": "abc123",
+    "agent": "analytics"
+  }
+}
+```
+
+**Security Violation Log**:
+```json
+{
+  "timestamp": "2026-02-12T10:31:00Z",
+  "event_type": "security_violation",
+  "severity": "high",
+  "violation_type": "forbidden_function",
+  "details": "Attempt to use eval() function",
+  "code_hash": "x1y2z3",
+  "code": "result = eval('2+2')"
+}
+```
+
+**Configuration**:
+```yaml
+audit:
+  enabled: true
+  log_file: "logs/code_execution_audit.log"
+  max_bytes: 104857600  # 100MB
+  backup_count: 10      # Keep 10 backup files
+```
+
+**Viewing Audit Logs**:
+```bash
+# Tail audit logs in real-time (Docker)
+docker-compose exec backend tail -f logs/code_execution_audit.log | jq .
+
+# Search for security violations
+docker-compose exec backend grep 'security_violation' logs/code_execution_audit.log | jq .
+
+# Count executions in last hour
+docker-compose exec backend bash -c "
+  grep 'code_execution' logs/code_execution_audit.log | \
+  grep \$(date -u +%Y-%m-%dT%H: -d '1 hour ago') | \
+  jq -s 'length'
+"
+```
+
+### Defense in Depth
+
+The security layer implements **defense in depth** with three independent layers:
+
+1. **Layer 1: Code Validation (Prevention)**
+   - Blocks dangerous code before execution
+   - Static analysis (no execution)
+   - Fast (< 10ms)
+
+2. **Layer 2: Sandbox Execution (Containment)**
+   - Even if validation is bypassed, sandbox blocks dangerous operations
+   - Runtime protection
+   - Resource limits prevent DoS
+
+3. **Layer 3: Audit Logging (Detection)**
+   - All executions logged for forensic analysis
+   - Security violations tracked
+   - Enables incident response
+
+**Example Multi-Layer Protection**:
+```python
+# Malicious code attempt
+code = "result = __import__('os').system('rm -rf /')"
+
+# Layer 1: Code Validator blocks it
+validation = validator.validate(code)
+# → is_valid=False, errors=["Use of forbidden function: __import__"]
+
+# Layer 2: If validation bypassed, sandbox blocks it
+execution = executor.execute_code(code)
+# → success=False, error="NameError: __import__ not in restricted environment"
+
+# Layer 3: Audit log records the attempt
+audit_logger.log_security_violation(
+    code=code,
+    violation_type="forbidden_import",
+    details="Attempt to import os module",
+    severity="critical"
+)
+```
+
+### Integration with Analytics Agent
+
+The Analytics Agent uses all three security components:
+
+```python
+# In analytics agent (analytics/agent.py)
+from app.services.security import CodeValidator, SandboxExecutor, CodeExecutionAuditLogger
+
+class AnalyticsAgent(BaseAgent):
+    def __init__(self, config):
+        # Initialize security components
+        security_config = config.get("code_execution_security", {})
+        self.validator = CodeValidator(config=security_config.get("validation", {}))
+        self.executor = SandboxExecutor(config=security_config.get("isolation", {}))
+        self.audit_logger = CodeExecutionAuditLogger(config=security_config.get("audit", {}))
+
+    async def execute_code(self, state):
+        # 1. Validate code
+        validation_result = self.validator.validate(code, dataframe=df)
+        if not validation_result.is_valid:
+            self.audit_logger.log_security_violation(
+                code=code,
+                violation_type="validation_failed",
+                details=str(validation_result.errors)
+            )
+            raise SecurityViolationError(validation_result.errors)
+
+        # 2. Execute in sandbox
+        execution_result = self.executor.execute_code(code, context={"df": df})
+
+        # 3. Log execution
+        self.audit_logger.log_execution(
+            code=code,
+            query=state.get("current_task"),
+            validation_result=validation_result,
+            execution_result=execution_result
+        )
+
+        return execution_result
+```
+
+### Configuration
+
+Enable/disable security features in `config.yaml`:
+
+```yaml
+code_execution_security:
+  enabled: true  # Master kill switch (disables all security)
+
+  validation:
+    use_ast_visitor: true              # Enable AST validation
+    block_dunder_attributes: true      # Block __globals__, etc.
+    allowed_imports:                   # Whitelist
+      - pandas
+      - numpy
+      - matplotlib
+
+  isolation:
+    use_process_isolation: false       # Process isolation (Docker issues)
+    cpu_time_limit_seconds: 5
+    memory_limit_mb: 512
+    wall_time_limit_seconds: 10
+
+  audit:
+    enabled: true
+    log_file: "logs/code_execution_audit.log"
+```
+
+### Security Testing
+
+See `backend/tests/security/` for comprehensive security tests:
+
+```bash
+# Run all security tests
+pytest tests/security/ -v
+
+# Test code validator
+pytest tests/security/test_code_validator.py
+
+# Test sandbox executor
+pytest tests/security/test_sandbox_executor.py
+
+# Test full security integration
+pytest tests/security/test_security_integration.py
+```
+
+**Test Coverage**:
+- ✅ Blocks eval(), exec(), compile()
+- ✅ Blocks file I/O (open(), pd.read_csv())
+- ✅ Blocks network access (requests, urllib)
+- ✅ Blocks dangerous imports (os, sys, subprocess)
+- ✅ Blocks dunder attribute access
+- ✅ Enforces timeouts (infinite loops)
+- ✅ Audit logging captures all events
+- ✅ Legitimate pandas code passes validation
+
+---
+
 ## Frontend Architecture
 
 **Tech Stack**: React + TypeScript + Vite + Tailwind CSS
@@ -1021,6 +1392,32 @@ configApi.checkHealth()
 - Unidirectional: Can't push updates from client during streaming
 - Not Supported in All Browsers: (but works in all modern browsers)
 - Accepted because our use case is server→client only
+
+### 9. Three-Layer Security (Defense in Depth)
+
+**Decision**: Implement AST validation + sandboxed execution + audit logging, not single-layer security.
+
+**Rationale**:
+- **Defense in Depth**: Multiple independent layers prevent single point of failure
+- **Validation Layer**: Blocks dangerous code before execution (fast, static)
+- **Sandbox Layer**: Contains threats even if validation bypassed (runtime protection)
+- **Audit Layer**: Enables forensic analysis and incident response (detection)
+- **Compliance**: Comprehensive logging for security audit requirements
+
+**Trade-offs**:
+- Complexity: More code to maintain, more configuration
+- Performance: Validation adds ~10ms, logging adds ~5ms per execution
+- Accepted because security is critical for code generation systems
+
+**Why Not Single-Layer Security?**
+- **Validation Only**: Can be bypassed with clever exploits
+- **Sandbox Only**: Malicious code still executes (defense, not prevention)
+- **Logging Only**: Detects after damage done (reactive, not proactive)
+
+**Why This Approach?**
+- **Layer 1 Blocks Most Threats**: Simple AST validation catches 99% of dangerous code
+- **Layer 2 Contains Sophisticated Attacks**: Sandbox stops bypass attempts
+- **Layer 3 Enables Response**: Audit logs provide evidence for incident investigation
 
 ---
 

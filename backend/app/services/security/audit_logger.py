@@ -51,9 +51,7 @@ class CodeExecutionAuditLogger:
         )
 
         # JSON formatter for structured logging
-        formatter = logging.Formatter(
-            "%(message)s"  # We'll format as JSON ourselves
-        )
+        formatter = logging.Formatter("%(message)s")  # We'll format as JSON ourselves
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
 
@@ -112,9 +110,7 @@ class CodeExecutionAuditLogger:
 
             # Add result type (but not the actual result data for privacy)
             if hasattr(execution_result, "result") and execution_result.result is not None:
-                log_entry["execution"]["result_type"] = type(
-                    execution_result.result
-                ).__name__
+                log_entry["execution"]["result_type"] = type(execution_result.result).__name__
 
         # User context
         if user_context:

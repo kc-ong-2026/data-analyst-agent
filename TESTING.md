@@ -25,11 +25,12 @@ This guide explains how to run tests, collect evaluation metrics, and export sco
 
 ### Testing Philosophy
 
-The system uses a **three-tier testing approach**:
+The system uses a **four-tier testing approach**:
 
 1. **Unit Tests** - Fast, isolated tests of individual components (< 100ms per test)
 2. **Integration Tests** - Tests of multiple components working together (requires DB, < 1s per test)
-3. **Evaluation Tests** - Quality metrics for LLM outputs (requires LLM API, 1-10s per test)
+3. **Security Tests** - Tests of code validation, sandboxing, and audit logging (< 1s per test)
+4. **Evaluation Tests** - Quality metrics for LLM outputs (requires LLM API, 1-10s per test)
 
 ### Quick Start
 
@@ -39,6 +40,7 @@ pytest
 
 # Run specific test categories
 pytest -m unit           # Fast unit tests only
+pytest -m security       # Security tests only
 pytest -m evaluation     # Evaluation metrics only
 
 # Run with coverage report
@@ -61,10 +63,14 @@ pytest
 # Run specific test markers
 pytest -m unit                # Unit tests only (~100 tests, <10s)
 pytest -m integration         # Integration tests (~50 tests, <1min)
+pytest -m security            # Security tests (~30 tests, <30s)
 pytest -m evaluation          # Evaluation tests (~20 tests, 2-5min)
 pytest -m performance         # Performance benchmarks (~10 tests, 1-2min)
 
 # Run specific test files
+pytest tests/security/test_code_validator.py
+pytest tests/security/test_sandbox_executor.py
+pytest tests/security/test_security_integration.py
 pytest tests/evaluation/test_retrieval_metrics.py
 pytest tests/evaluation/test_generation_metrics.py
 pytest tests/evaluation/test_llm_as_judge.py
@@ -229,6 +235,196 @@ print(f"Accuracy: {judgment.criteria_scores['accuracy'].score}/5.0")
 print(f"Reasoning: {judgment.criteria_scores['accuracy'].reasoning}")
 print(f"Strengths: {judgment.strengths}")
 print(f"Weaknesses: {judgment.weaknesses}")
+```
+
+### 4. Security Testing (Code Execution Safety)
+
+**Purpose**: Validate that the code execution security layer protects against malicious or dangerous code.
+
+**Test Categories**:
+
+| Category | Description | Test Count | What It Tests |
+|----------|-------------|-----------|---------------|
+| **Code Validator** | AST-based validation | 15 tests | Blocks forbidden functions, imports, attributes |
+| **Sandbox Executor** | Restricted execution | 10 tests | Enforces resource limits, blocks I/O, timeout protection |
+| **Security Integration** | End-to-end security | 5 tests | Defense-in-depth, audit logging, full workflow |
+
+**When to Use**:
+- Verifying code generation safety
+- Testing new code validation rules
+- Validating security configuration changes
+- Ensuring analytics agent doesn't allow dangerous code
+
+**Running Security Tests**:
+
+```bash
+# Run all security tests
+pytest tests/security/ -v
+
+# Run specific security test categories
+pytest tests/security/test_code_validator.py -v      # Validation tests
+pytest tests/security/test_sandbox_executor.py -v    # Sandbox tests
+pytest tests/security/test_security_integration.py -v # Integration tests
+
+# Run with coverage
+pytest tests/security/ --cov=app.services.security --cov-report=html
+
+# Run specific test cases
+pytest tests/security/test_code_validator.py::TestCodeValidator::test_blocks_eval
+pytest tests/security/test_sandbox_executor.py::TestSandboxExecutor::test_timeout_enforcement
+```
+
+**Test Coverage**:
+
+**Code Validator Tests** (`test_code_validator.py`):
+```python
+✅ test_blocks_eval              # Blocks eval() function
+✅ test_blocks_exec              # Blocks exec() function
+✅ test_blocks_compile           # Blocks compile() function
+✅ test_blocks_open              # Blocks file I/O
+✅ test_blocks_import            # Blocks __import__()
+✅ test_blocks_dunder_globals    # Blocks __globals__ access
+✅ test_blocks_dunder_class      # Blocks __class__ access
+✅ test_blocks_subprocess        # Blocks subprocess module
+✅ test_blocks_os_system         # Blocks os.system()
+✅ test_blocks_network           # Blocks requests, urllib
+✅ test_blocks_database_ops      # Blocks pd.read_sql, to_sql
+✅ test_allows_pandas            # Allows safe pandas code
+✅ test_allows_numpy             # Allows safe numpy code
+✅ test_allows_matplotlib        # Allows safe matplotlib code
+✅ test_syntax_error_detection   # Catches syntax errors
+```
+
+**Sandbox Executor Tests** (`test_sandbox_executor.py`):
+```python
+✅ test_executes_safe_code       # Executes legitimate pandas code
+✅ test_timeout_enforcement      # Stops infinite loops
+✅ test_memory_limits            # Prevents memory exhaustion
+✅ test_restricted_builtins      # Blocks dangerous builtins
+✅ test_no_file_access           # Prevents file I/O
+✅ test_no_network_access        # Prevents network access
+✅ test_captures_exceptions      # Handles runtime errors gracefully
+✅ test_result_extraction        # Extracts execution results
+✅ test_dataframe_context        # Works with pandas DataFrames
+✅ test_visualization_support    # Supports matplotlib figures
+```
+
+**Security Integration Tests** (`test_security_integration.py`):
+```python
+✅ test_validate_then_execute_legitimate_code     # Full workflow with safe code
+✅ test_validate_blocks_dangerous_code            # Validation layer blocks threats
+✅ test_validate_blocks_attribute_escape          # Blocks __globals__ escape
+✅ test_validate_blocks_database_operations       # Blocks SQL operations
+✅ test_audit_logging_captures_execution          # Audit logs all executions
+✅ test_audit_logging_security_violation          # Logs security violations
+✅ test_security_can_be_disabled                  # Configuration toggle works
+✅ test_process_isolation_can_be_disabled         # Sandbox config works
+✅ test_complex_pandas_analysis                   # Real-world analysis passes
+✅ test_visualization_code                        # Matplotlib code passes
+✅ test_handles_runtime_errors_gracefully         # Runtime errors handled
+✅ test_handles_syntax_errors_in_validation       # Syntax errors caught
+✅ test_multiple_security_layers                  # Defense in depth works
+✅ test_cannot_bypass_restricted_builtins         # Bypass attempts fail
+```
+
+**Example Test Case**:
+
+```python
+def test_blocks_eval():
+    """Test that eval() is blocked by code validator."""
+    from app.services.security import CodeValidator
+
+    validator = CodeValidator(config={"use_ast_visitor": True})
+
+    # Malicious code using eval
+    code = "result = eval('2+2')"
+
+    # Validate code
+    validation_result = validator.validate(code)
+
+    # Should be invalid
+    assert not validation_result.is_valid
+    assert any("eval" in error.lower() for error in validation_result.errors)
+    assert "eval" in validation_result.forbidden_functions
+
+
+def test_timeout_enforcement():
+    """Test that infinite loops are stopped by timeout."""
+    from app.services.security import SandboxExecutor
+
+    executor = SandboxExecutor(config={
+        "use_process_isolation": False,
+        "cpu_time_limit_seconds": 1
+    })
+
+    # Infinite loop code
+    code = "while True: pass"
+
+    # Execute with timeout
+    execution_result = executor.execute_code(code)
+
+    # Should fail with timeout
+    assert not execution_result.success
+    assert execution_result.error_type in ["TimeoutError", "TimeoutException"]
+    assert "timeout" in execution_result.error.lower()
+```
+
+**Audit Log Verification**:
+
+```bash
+# Check audit logs after security tests
+cat logs/code_execution_audit.log | jq .
+
+# Count security violations
+grep 'security_violation' logs/code_execution_audit.log | wc -l
+
+# View specific violation types
+grep 'forbidden_function' logs/code_execution_audit.log | jq .
+```
+
+**Security Test Best Practices**:
+
+1. **Always Test Both Layers**: Test validation AND sandbox independently
+2. **Use Realistic Attack Vectors**: Test real-world bypass techniques
+3. **Verify Audit Logs**: Check that violations are logged correctly
+4. **Test Legitimate Code**: Ensure safe code still works
+5. **Test Configuration Toggles**: Verify enable/disable switches work
+
+**Common Security Test Patterns**:
+
+```python
+# Pattern 1: Validation blocks, sandbox catches bypass
+def test_defense_in_depth():
+    validator = CodeValidator(config={"use_ast_visitor": True})
+    executor = SandboxExecutor(config={"use_process_isolation": False})
+
+    dangerous_code = "result = __import__('os').system('ls')"
+
+    # Layer 1: Validation should block
+    validation = validator.validate(dangerous_code)
+    assert not validation.is_valid
+
+    # Layer 2: Even if validation bypassed, sandbox blocks
+    execution = executor.execute_code(dangerous_code)
+    assert not execution.success
+
+
+# Pattern 2: Legitimate code passes all layers
+def test_legitimate_code_passes():
+    validator = CodeValidator(config={"use_ast_visitor": True})
+    executor = SandboxExecutor(config={"use_process_isolation": False})
+
+    safe_code = "result = df.groupby('age')['value'].sum()"
+    df = pd.DataFrame({"age": [1, 2], "value": [10, 20]})
+
+    # Validation passes
+    validation = validator.validate(safe_code, dataframe=df)
+    assert validation.is_valid
+
+    # Execution succeeds
+    execution = executor.execute_code(safe_code, context={"df": df})
+    assert execution.success
+    assert execution.result == 30  # Expected sum
 ```
 
 ---
@@ -1132,10 +1328,14 @@ pytest
 # Run specific test categories
 pytest -m unit                              # Fast unit tests
 pytest -m integration                       # Integration tests
+pytest -m security                          # Security tests
 pytest -m evaluation                        # Evaluation metrics tests
 pytest -m performance                       # Performance tests
 
 # Run specific test files
+pytest tests/security/test_code_validator.py
+pytest tests/security/test_sandbox_executor.py
+pytest tests/security/test_security_integration.py
 pytest tests/evaluation/test_retrieval_metrics.py
 pytest tests/evaluation/test_generation_metrics.py
 pytest tests/evaluation/test_llm_as_judge.py

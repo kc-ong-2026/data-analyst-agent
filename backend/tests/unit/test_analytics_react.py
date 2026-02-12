@@ -48,7 +48,9 @@ class TestCodeValidation:
         Note: Column validation is best-effort and may not catch all patterns.
         Missing columns will fail at runtime anyway.
         """
-        code_with_bad_col = "result = df['sector'].mean()"  # Use direct column access for reliable detection
+        code_with_bad_col = (
+            "result = df['sector'].mean()"  # Use direct column access for reliable detection
+        )
 
         validation = analytics_agent._validate_generated_code(
             code=code_with_bad_col, dataframes={"df": sample_dataframe}, should_plot=False
@@ -72,7 +74,10 @@ result = df.head()
 
         assert validation["valid"] is False
         # AST validator says "Import not allowed" instead of "forbidden"
-        assert any(("not allowed" in str(err).lower() or "os" in str(err).lower()) for err in validation["errors"])
+        assert any(
+            ("not allowed" in str(err).lower() or "os" in str(err).lower())
+            for err in validation["errors"]
+        )
 
     def test_validate_code_forbidden_operations(self, analytics_agent, sample_dataframe):
         """Test rejection of file I/O and eval/exec."""
@@ -88,7 +93,10 @@ result = df.head()
 
         assert validation["valid"] is False
         # AST validator detects "open" as forbidden function
-        assert any(("open" in str(err).lower() or "forbidden" in str(err).lower()) for err in validation["errors"])
+        assert any(
+            ("open" in str(err).lower() or "forbidden" in str(err).lower())
+            for err in validation["errors"]
+        )
 
     def test_validate_code_matplotlib_check(self, analytics_agent, sample_dataframe):
         """Test matplotlib requirement when visualization requested."""

@@ -290,9 +290,7 @@ class CodeValidator:
                 },
             )
 
-    def _validate_dataframe_columns(
-        self, code: str, dataframe: pd.DataFrame
-    ) -> ValidationResult:
+    def _validate_dataframe_columns(self, code: str, dataframe: pd.DataFrame) -> ValidationResult:
         """
         Validate that column references in code exist in the DataFrame.
 

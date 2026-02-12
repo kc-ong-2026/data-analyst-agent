@@ -2441,7 +2441,11 @@ plt.close()
         return ""
 
     async def _execute_code_safely(
-        self, code: str, timeout: float = 5.0, df: pd.DataFrame | None = None, should_plot: bool = False
+        self,
+        code: str,
+        timeout: float = 5.0,
+        df: pd.DataFrame | None = None,
+        should_plot: bool = False,
     ) -> dict[str, Any]:
         """Execute code safely using process-isolated sandbox with resource limits.
 

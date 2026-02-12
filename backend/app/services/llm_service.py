@@ -242,7 +242,11 @@ class LLMService:
 
             return isinstance(
                 error,
-                asyncio.TimeoutError | httpx.TimeoutException | httpx.ConnectError | httpx.NetworkError | httpx.RemoteProtocolError,
+                asyncio.TimeoutError
+                | httpx.TimeoutException
+                | httpx.ConnectError
+                | httpx.NetworkError
+                | httpx.RemoteProtocolError,
             )
         except ImportError:
             # If httpx not available, just check asyncio timeout

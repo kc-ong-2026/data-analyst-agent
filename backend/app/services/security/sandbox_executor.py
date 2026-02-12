@@ -190,9 +190,7 @@ class SandboxExecutor:
         self.wall_time_limit = self.config.get("wall_time_limit_seconds", 10)
         self.max_open_files = self.config.get("max_open_files", 3)
 
-    def execute_code(
-        self, code: str, context: dict[str, Any] = None
-    ) -> ExecutionResult:
+    def execute_code(self, code: str, context: dict[str, Any] = None) -> ExecutionResult:
         """
         Execute code in isolated sandbox.
 
@@ -267,9 +265,7 @@ class SandboxExecutor:
                 process.terminate()
                 process.join(timeout=1)
 
-    def _execute_in_process_fallback(
-        self, code: str, context: dict[str, Any]
-    ) -> ExecutionResult:
+    def _execute_in_process_fallback(self, code: str, context: dict[str, Any]) -> ExecutionResult:
         """
         Fallback execution in same process (less secure, for testing/development).
 

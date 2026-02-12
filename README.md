@@ -44,6 +44,7 @@ An AI-powered chat assistant for natural language querying of Singapore governme
 - 🔍 **Hybrid RAG Retrieval** - Vector + BM25 search with cross-encoder reranking
 - 🛡️ **LLM Resilience** - Automatic retry, model fallback, provider fallback with circuit breaker
 - 🏗️ **Multi-Agent Architecture** - Verification → Coordinator → Extraction → Analytics pipeline
+- 🔒 **Secure Code Execution** - AST-based validation, sandboxed execution, comprehensive audit logging
 - 🔄 **Provider Agnostic** - Supports OpenAI, Anthropic, and Google models
 - 🐳 **Docker Ready** - Full containerization with hot reload for development
 
@@ -413,6 +414,7 @@ make test
 # Run specific test categories
 make test-unit              # Unit tests only (fast, ~30s)
 make test-integration       # Integration tests with mocked LLM (fast)
+make test-security          # Security tests (code validation, sandboxing)
 make test-e2e              # End-to-end pipeline tests
 
 # Run with coverage report
@@ -503,6 +505,11 @@ backend/tests/
 │   ├── test_e2e_pipeline.py
 │   ├── test_orchestrator.py
 │   └── test_rag_pipeline.py
+│
+├── security/                # Security tests
+│   ├── test_code_validator.py
+│   ├── test_sandbox_executor.py
+│   └── test_security_integration.py
 │
 ├── evaluation/              # Quality metrics
 │   ├── test_retrieval_metrics.py
@@ -751,6 +758,11 @@ govtech-chat-assistant/
 │   │   │   │   ├── analytics/         # Analysis & viz
 │   │   │   │   ├── orchestrator.py    # Agent orchestration
 │   │   │   │   └── base_agent.py      # Base agent class
+│   │   │   ├── security/              # Code execution security
+│   │   │   │   ├── code_validator.py  # AST-based code validation
+│   │   │   │   ├── sandbox_executor.py # Sandboxed code execution
+│   │   │   │   ├── audit_logger.py    # Security audit logging
+│   │   │   │   └── exceptions.py      # Security exceptions
 │   │   │   ├── ingestion/             # Data ingestion pipeline
 │   │   │   ├── llm_service.py         # LLM provider abstraction
 │   │   │   ├── llm_resilience.py      # Retry + fallback logic
@@ -769,6 +781,7 @@ govtech-chat-assistant/
 │   ├── tests/                         # Test suite
 │   │   ├── unit/                      # Unit tests
 │   │   ├── integration/               # Integration tests
+│   │   ├── security/                  # Security tests
 │   │   └── evaluation/                # Quality metrics
 │   ├── Dockerfile                     # Backend container
 │   ├── requirements.txt               # Python dependencies
@@ -863,6 +876,36 @@ rag:
   confidence_threshold: 0.5      # Min score to load dataset
   min_datasets: 1                # Always load at least 1
   max_datasets: 3                # Never load more than 3
+```
+
+#### Code Execution Security Configuration
+
+```yaml
+code_execution_security:
+  enabled: true                  # Master kill switch
+
+  # Code validation (AST-based)
+  validation:
+    use_ast_visitor: true        # Use AST validation (recommended)
+    block_dunder_attributes: true # Block __globals__, __class__, etc.
+    allowed_imports:             # Whitelist of safe imports
+      - pandas
+      - numpy
+      - matplotlib
+
+  # Sandbox execution
+  isolation:
+    use_process_isolation: false # Process isolation (disabled in Docker)
+    cpu_time_limit_seconds: 5   # Max CPU time
+    memory_limit_mb: 512         # Max memory usage
+    wall_time_limit_seconds: 10 # Max wall clock time
+
+  # Audit logging
+  audit:
+    enabled: true
+    log_file: "logs/code_execution_audit.log"
+    max_bytes: 104857600         # 100MB
+    backup_count: 10
 ```
 
 ### Environment Variables (`backend/.env`)

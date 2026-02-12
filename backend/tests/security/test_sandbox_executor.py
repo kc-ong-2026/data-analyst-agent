@@ -1,6 +1,5 @@
 """Tests for sandbox code execution."""
 
-
 import pandas as pd
 import pytest
 
@@ -158,9 +157,7 @@ result = __builtins__['eval']('2 + 2')
     def test_fallback_execution_works(self, executor_no_isolation, sample_dataframe):
         """Test that in-process fallback execution works."""
         code = "result = df['value'].sum()"
-        result = executor_no_isolation.execute_code(
-            code, context={"df": sample_dataframe}
-        )
+        result = executor_no_isolation.execute_code(code, context={"df": sample_dataframe})
 
         assert result.success
         assert result.result == 600

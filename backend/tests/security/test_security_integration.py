@@ -1,6 +1,5 @@
 """End-to-end security integration tests."""
 
-
 import pandas as pd
 import pytest
 
@@ -103,7 +102,9 @@ class TestSecurityIntegration:
         # Validation should block it
         validation_result = validator.validate(code)
         assert not validation_result.is_valid
-        assert any("__class__" in error or "__init__" in error for error in validation_result.errors)
+        assert any(
+            "__class__" in error or "__init__" in error for error in validation_result.errors
+        )
 
     def test_validate_blocks_database_operations(self, validator):
         """Test that database operations are blocked."""

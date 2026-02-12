@@ -246,7 +246,9 @@ result = df['a'].sum()
         assert result["result"] == 6
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Timeout enforcement requires process isolation, which is currently disabled")
+    @pytest.mark.skip(
+        reason="Timeout enforcement requires process isolation, which is currently disabled"
+    )
     async def test_respects_5_second_timeout(self):
         """Test that code execution times out after 5 seconds.
 
