@@ -11,22 +11,23 @@ An intelligent AI-powered chat assistant that enables natural language querying 
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [Architecture](#-architecture)
-- [Technology Stack & Justifications](#-technology-stack--justifications)
-- [Setup Instructions](#-setup-instructions)
-- [Running the Application](#-running-the-application)
-- [Running Tests](#-running-tests)
-- [Sample Queries](#-sample-queries)
-- [Project Structure](#-project-structure)
-- [Configuration](#-configuration)
-- [API Documentation](#-api-documentation)
-- [Development](#-development)
-- [Troubleshooting](#-troubleshooting)
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Technology Stack & Justifications](#technology-stack-justifications)
+- [Setup Instructions](#setup-instructions)
+- [Running the Application](#running-the-application)
+- [Running Tests](#running-tests)
+- [Sample Queries](#sample-queries)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [API Documentation](#api-documentation)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
+<a name="overview"></a>
 ## 🎯 Overview
 
 An AI-powered chat assistant for natural language querying of Singapore government datasets (employment, income, hours worked). Ask questions in plain English and receive intelligent insights with auto-generated visualizations.
@@ -37,6 +38,7 @@ An AI-powered chat assistant for natural language querying of Singapore governme
 
 ---
 
+<a name="key-features"></a>
 ## ✨ Key Features
 
 - 🤖 **Natural Language Queries** - Ask in plain English (e.g., "Show me employment trends in 2023 by age")
@@ -50,6 +52,7 @@ An AI-powered chat assistant for natural language querying of Singapore governme
 
 ---
 
+<a name="architecture"></a>
 ## 🏛️ Architecture
 
 ```
@@ -72,6 +75,7 @@ Response + Chart
 
 ---
 
+<a name="technology-stack-justifications"></a>
 ## 🛠️ Technology Stack & Justifications
 
 ### Frontend
@@ -153,6 +157,7 @@ Response + Chart
 
 ---
 
+<a name="setup-instructions"></a>
 ## 🚀 Setup Instructions
 
 ### Prerequisites
@@ -278,6 +283,7 @@ curl http://localhost:8000/api/config/health
 
 ---
 
+<a name="running-the-application"></a>
 ## 🎮 Running the Application
 
 ### Docker (Recommended)
@@ -401,6 +407,7 @@ docker-compose exec postgres psql -U govtech -d govtech_rag
 
 ---
 
+<a name="running-tests"></a>
 ## 🧪 Running Tests
 
 The project includes comprehensive testing with unit tests, integration tests, and evaluation tests.
@@ -584,6 +591,7 @@ npx tsc --noEmit
 
 ---
 
+<a name="sample-queries"></a>
 ## 💬 Sample Queries
 
 Try these queries based on the actual datasets available (1991-2025):
@@ -721,6 +729,7 @@ Example response for "What is the employment rate for males aged 25-54 in 2023?"
 
 ---
 
+<a name="project-structure"></a>
 ## 📁 Project Structure
 
 ```
@@ -803,6 +812,7 @@ govtech-chat-assistant/
 
 ---
 
+<a name="configuration"></a>
 ## ⚙️ Configuration
 
 ### Backend Configuration (`backend/config/config.yaml`)
@@ -932,6 +942,7 @@ WORKERS=1                                 # Uvicorn workers
 
 ---
 
+<a name="api-documentation"></a>
 ## 📚 API Documentation
 
 ### Interactive Documentation
@@ -1009,6 +1020,7 @@ curl http://localhost:8000/api/data/datasets/employment_2023.csv/info
 
 ---
 
+<a name="development"></a>
 ## 👨‍💻 Development
 
 ### Frontend Development
@@ -1087,6 +1099,7 @@ alembic downgrade -1
 
 ---
 
+<a name="troubleshooting"></a>
 ## 🐛 Troubleshooting
 
 ### Common Issues
