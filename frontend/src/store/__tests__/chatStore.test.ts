@@ -17,7 +17,6 @@ describe('chatStore', () => {
     jest.clearAllMocks();
 
     // Reset the store state manually
-    const { result } = renderHook(() => useChatStore());
     act(() => {
       useChatStore.setState({
         messages: [],
@@ -116,15 +115,6 @@ describe('chatStore', () => {
 
   describe('sendMessage (streaming)', () => {
     it('should handle streaming message correctly', async () => {
-      const mockCallbacks = {
-        onStart: jest.fn(),
-        onAgent: jest.fn(),
-        onToken: jest.fn(),
-        onVisualization: jest.fn(),
-        onComplete: jest.fn(),
-        onError: jest.fn(),
-      };
-
       (chatApi.streamMessage as jest.Mock).mockImplementation(async (request, callbacks) => {
         // Simulate streaming events
         callbacks.onStart('conv-456');

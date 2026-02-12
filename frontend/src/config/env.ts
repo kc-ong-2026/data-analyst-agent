@@ -9,7 +9,7 @@ export const getApiUrl = (): string => {
   }
   // In browser/Vite environment, check if import.meta is available
   if (typeof window !== 'undefined') {
-    // @ts-ignore - import.meta is available in Vite but not in Jest
+    // @ts-expect-error - import.meta is available in Vite but not in Jest
     return import.meta?.env?.VITE_API_URL || '/api';
   }
   // Fallback
