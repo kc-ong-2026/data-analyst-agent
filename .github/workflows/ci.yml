@@ -91,7 +91,7 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
         run: |
-          psql -h localhost -U govtech -d govtech_rag -f db/init_folder_based.sql
+          psql -h localhost -U govtech -d govtech_rag -f db/init.sql
 
       - name: Run unit tests
         working-directory: ./backend
@@ -152,7 +152,7 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
         run: |
-          psql -h localhost -U govtech -d govtech_rag -f db/init_folder_based.sql
+          psql -h localhost -U govtech -d govtech_rag -f db/init.sql
 
       - name: Run integration tests
         working-directory: ./backend
